@@ -108,6 +108,7 @@ function normalizeOrigin(value) {
     !url.hostname ||
     url.username ||
     url.password ||
+    url.origin !== value ||
     url.pathname !== '/' ||
     url.search ||
     url.hash

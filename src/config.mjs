@@ -39,7 +39,7 @@ const ALLOWED_CONFIG_KEYS = new Set([
   "sanityToken",
   "workspaceRoot",
 ]);
-const LEGACY_MANAGED_FIELDS = ["publisherApiOrigin", "apiVersion", "workspaceRoot"];
+const LEGACY_LAYOUT_FIELDS = ["apiVersion", "workspaceRoot"];
 const execFileAsync = promisify(execFile);
 const WINDOWS_ACL_SCRIPT = String.raw`
 $ErrorActionPreference = "Stop"
@@ -242,7 +242,7 @@ function hasOwn(input, key) {
 }
 
 function usesManagedDefaults(input) {
-  return !LEGACY_MANAGED_FIELDS.some((field) => hasOwn(input, field));
+  return !LEGACY_LAYOUT_FIELDS.some((field) => hasOwn(input, field));
 }
 
 export function validateConfigObject(input, { homeDir = os.homedir() } = {}) {
@@ -275,7 +275,11 @@ export function validateConfigObject(input, { homeDir = os.homedir() } = {}) {
   let apiVersion = DEFAULT_SANITY_API_VERSION;
   let workspaceRoot = getDefaultWorkspaceRoot(homeDir);
 
-  if (!usesManagedDefaults(input)) {
+  if (usesManagedDefaults(input)) {
+    if (hasOwn(input, "publisherApiOrigin")) {
+      publisherApiOrigin = validateOrigin(input.publisherApiOrigin);
+    }
+  } else {
     if (!hasOwn(input, "publisherApiOrigin") || !hasOwn(input, "apiVersion")) {
       throw configError(
         "LEGACY_CONFIG_REQUIRES_REINIT",
@@ -292,13 +296,10 @@ export function validateConfigObject(input, { homeDir = os.homedir() } = {}) {
         error,
       );
     }
-    if (
-      publisherApiOrigin !== DEFAULT_PUBLISHER_API_ORIGIN ||
-      apiVersion !== DEFAULT_SANITY_API_VERSION
-    ) {
+    if (apiVersion !== DEFAULT_SANITY_API_VERSION) {
       throw configError(
         "LEGACY_CONFIG_REQUIRES_REINIT",
-        "Legacy configuration targets unsupported managed settings. Run the initializer again.",
+        "Legacy configuration uses an unsupported API version. Run the initializer again.",
       );
     }
     workspaceRoot = hasOwn(input, "workspaceRoot")
@@ -527,6 +528,7 @@ export async function checkConfig(options = {}) {
   const { configPath } = getConfigPaths(options.homeDir ?? os.homedir());
   return {
     configured: true,
+    publisherApiOrigin: config.publisherApiOrigin,
     target: {
       projectId: config.projectId,
       dataset: config.dataset,
@@ -643,6 +645,7 @@ export async function initializeConfig(
 
     const persisted = managedConfiguration
       ? {
+          publisherApiOrigin: config.publisherApiOrigin,
           projectId: config.projectId,
           dataset: config.dataset,
           sanityToken: config.sanityToken,

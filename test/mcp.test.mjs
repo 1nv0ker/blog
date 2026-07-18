@@ -25,7 +25,11 @@ const EXPECTED_TOOLS = [
 
 function stubService(overrides = {}) {
   return {
-    checkConfig: async () => ({ok: true, configured: true}),
+    checkConfig: async () => ({
+      ok: true,
+      configured: true,
+      publisherApiOrigin: 'https://publisher.example.test',
+    }),
     preparePublish: async (baseSlug) => ({ok: true, slug: baseSlug}),
     prepareUpdate: async (slug) => ({ok: true, slug}),
     validate: async () => ({ok: true, valid: true}),
@@ -88,7 +92,11 @@ test('MCP tool results contain equivalent structuredContent and JSON text', asyn
   })
   assert.equal(result.isError, undefined)
   assert.deepEqual(JSON.parse(result.content[0].text), result.structuredContent)
-  assert.deepEqual(result.structuredContent, {ok: true, configured: true})
+  assert.deepEqual(result.structuredContent, {
+    ok: true,
+    configured: true,
+    publisherApiOrigin: 'https://publisher.example.test',
+  })
 })
 
 test('MCP tool errors are sanitized, dual-format, and marked isError', async (t) => {

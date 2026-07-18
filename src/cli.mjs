@@ -6,6 +6,7 @@ import {fileURLToPath} from 'node:url'
 import {createInterface} from 'node:readline/promises'
 
 import {checkConfig, initializeConfig} from './config.mjs'
+import {DEFAULT_PUBLISHER_API_ORIGIN} from './constants.mjs'
 import {SafeError, toSafeErrorResult} from './errors.mjs'
 import {asSafeError} from './service.mjs'
 
@@ -65,6 +66,9 @@ async function collectConfiguration() {
       )
     }
     return {
+      publisherApiOrigin:
+        process.env.SANITY_BLOG_PUBLISHER_API_ORIGIN?.trim() ||
+        DEFAULT_PUBLISHER_API_ORIGIN,
       projectId,
       dataset: process.env.SANITY_BLOG_DATASET?.trim() || 'production',
       sanityToken,
@@ -76,9 +80,15 @@ async function collectConfiguration() {
     output: process.stderr,
     terminal: true,
   })
+  let publisherApiOrigin
   let projectId
   let dataset
   try {
+    publisherApiOrigin = await askVisible(
+      readline,
+      'Publisher API origin (HTTPS)',
+      process.env.SANITY_BLOG_PUBLISHER_API_ORIGIN ?? DEFAULT_PUBLISHER_API_ORIGIN,
+    )
     projectId = await askVisible(
       readline,
       'Sanity project ID',
@@ -93,7 +103,7 @@ async function collectConfiguration() {
     readline.close()
   }
   const sanityToken = process.env.SANITY_BLOG_TOKEN ?? (await askHidden('Sanity token (hidden)'))
-  return {projectId, dataset, sanityToken}
+  return {publisherApiOrigin, projectId, dataset, sanityToken}
 }
 
 export async function runCli(args = process.argv.slice(2)) {

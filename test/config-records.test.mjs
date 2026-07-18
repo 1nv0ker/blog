@@ -118,12 +118,13 @@ test(
     }
   },
 );
-test("managed configuration persists only Sanity fields and creates the local workspace", async (t) => {
+test("managed configuration persists the publisher origin and creates the local workspace", async (t) => {
   const homeDir = await mkdtemp(path.join(os.tmpdir(), "sanityblog-managed-config-"));
   t.after(() => rm(homeDir, { recursive: true, force: true }));
 
   const summary = await initializeConfig(
     {
+      publisherApiOrigin: "https://publisher.example.test",
       projectId: "project-id",
       dataset: "production",
       sanityToken: "secret-token-never-serialize",
@@ -133,8 +134,14 @@ test("managed configuration persists only Sanity fields and creates the local wo
 
   const configPath = path.join(homeDir, ".sanity-blog", "config.json");
   const persisted = JSON.parse(await readFile(configPath, "utf8"));
-  assert.deepEqual(Object.keys(persisted), ["projectId", "dataset", "sanityToken"]);
+  assert.deepEqual(Object.keys(persisted), [
+    "publisherApiOrigin",
+    "projectId",
+    "dataset",
+    "sanityToken",
+  ]);
   assert.deepEqual(persisted, {
+    publisherApiOrigin: "https://publisher.example.test",
     projectId: "project-id",
     dataset: "production",
     sanityToken: "secret-token-never-serialize",
@@ -152,12 +159,46 @@ test("managed configuration persists only Sanity fields and creates the local wo
   }
 
   const loaded = await loadConfig({ homeDir, acl: noopAcl });
-  assert.equal(loaded.publisherApiOrigin, DEFAULT_PUBLISHER_API_ORIGIN);
+  assert.equal(loaded.publisherApiOrigin, "https://publisher.example.test");
   assert.equal(loaded.apiVersion, DEFAULT_SANITY_API_VERSION);
   assert.equal(loaded.workspaceRoot, workspaceRoot);
   assert.equal(summary.workspaceRoot, workspaceRoot);
+  assert.equal(
+    validateConfigObject({
+      projectId: "project-id",
+      dataset: "production",
+      sanityToken: "secret-token-never-serialize",
+    }).publisherApiOrigin,
+    DEFAULT_PUBLISHER_API_ORIGIN,
+  );
 });
-test("configuration initializes atomically and safe summaries omit token and origin", async (t) => {
+test("managed configuration rejects unsafe or non-canonical publisher origins", () => {
+  for (const publisherApiOrigin of [
+    "http://publisher.example.test",
+    "https://publisher.example.test/",
+    "https://publisher.example.test/path",
+    "https://publisher.example.test?query=1",
+    "https://publisher.example.test#fragment",
+    "https://user:password@publisher.example.test",
+    " https://publisher.example.test",
+    "https://PUBLISHER.example.test",
+    "https://publisher.example.test:443",
+    `https://${"a".repeat(2040)}.example.test`,
+  ]) {
+    assert.throws(
+      () => validateConfigObject({
+        publisherApiOrigin,
+        projectId: "project-id",
+        dataset: "production",
+        sanityToken: "secret-token-never-serialize",
+      }),
+      (error) => error instanceof SafeError && error.code === "INVALID_CONFIG",
+      publisherApiOrigin,
+    );
+  }
+});
+
+test("configuration initializes atomically and safe summaries expose origin but omit token", async (t) => {
   const value = await fixture();
   t.after(() => rm(value.homeDir, { recursive: true, force: true }));
   const summary = await initialize(value);
@@ -168,7 +209,7 @@ test("configuration initializes atomically and safe summaries omit token and ori
     apiVersion: "2026-07-05",
   });
   assert.equal("sanityToken" in summary, false);
-  assert.equal("publisherApiOrigin" in summary, false);
+  assert.equal(summary.publisherApiOrigin, DEFAULT_PUBLISHER_API_ORIGIN);
 
   const loaded = await loadConfig({
     homeDir: value.homeDir,

@@ -92,7 +92,7 @@ export function registerBlogTools(server, service) {
     {
       title: 'Check Sanity blog configuration',
       description:
-        'Safely checks the fixed ~/.sanity-blog/config.json without returning the token or API origin.',
+        'Safely checks ~/.sanity-blog/config.json, returning the configured publisher origin but never the token.',
       inputSchema: EMPTY_INPUT,
       annotations: READ_ONLY,
     },

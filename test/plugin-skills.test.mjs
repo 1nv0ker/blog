@@ -61,6 +61,7 @@ test('publish skill enforces research, bilingual Portable Text, cover, confirmat
   assert.match(skill, /explicit POST conflict/u)
   assert.match(skill, /final `articlePath` returned by commit/u)
   assert.match(skill, /PUBLISHED_BUT_RECORD_WRITE_FAILED/u)
+  assert.match(skill, /publisherApiOrigin/u)
   assert.match(skill, /Do not retry/u)
 
   const workflow = skill.slice(skill.indexOf('## Strict workflow'))
@@ -89,6 +90,7 @@ test('update skill requires local and remote existence and remains PUT-only', as
   assert.match(skill, /final `articlePath` returned by commit/u)
   assert.match(skill, /internally repeats the PUT dry-run and binds the revision/u)
   assert.match(skill, /Never create a replacement article/u)
+  assert.match(skill, /publisherApiOrigin/u)
 
   const workflow = skill.slice(skill.indexOf('## Strict workflow'))
   const ordered = [
@@ -109,7 +111,12 @@ test('one-click installer and minimal configuration are packaged', async () => {
   const configureInstall = await text('scripts/configure-install.mjs')
   const example = await json('config.example.json')
 
-  assert.deepEqual(Object.keys(example), ['projectId', 'dataset', 'sanityToken'])
+  assert.deepEqual(Object.keys(example), [
+    'publisherApiOrigin',
+    'projectId',
+    'dataset',
+    'sanityToken',
+  ])
   assert.match(installer, /NodeVersion = "22\.23\.1"/u)
   assert.match(installer, /SHASUMS256\.txt/u)
   assert.match(installer, /--omit=dev --ignore-scripts/u)
@@ -128,6 +135,7 @@ test('README documents one-click installation, broad MCP compatibility, and reco
     'Node.js 22.23.1',
     'Node.js 22.12',
     'npm install',
+    'SANITY_BLOG_PUBLISHER_API_ORIGIN',
     'SANITY_BLOG_PROJECT_ID',
     'SANITY_BLOG_DATASET',
     'SANITY_BLOG_TOKEN',
@@ -149,6 +157,7 @@ test('README documents one-click installation, broad MCP compatibility, and reco
     'remoteMutationSucceeded',
     'additionalProperties: false',
     'Agent Skills',
+    '裸 HTTPS origin',
   ]) {
     assert.ok(readme.includes(phrase), `README is missing ${phrase}`)
   }

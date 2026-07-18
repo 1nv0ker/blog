@@ -26,7 +26,7 @@ All input schemas reject additional properties. Never invent an argument, reuse 
 ## Non-negotiable safety rules
 
 - Require explicit invocation and explicit final confirmation. Never publish because it merely seems like the next step.
-- Never expose, copy, summarize, or log tokens, request headers, configuration contents, raw response bodies, or stack traces.
+- Never expose, copy, summarize, or log tokens, request headers, raw response bodies, stack traces, or configuration contents other than the safe `publisherApiOrigin` returned by `sanity_blog_check_config`; show that origin only as the remote publication destination.
 - Never edit outside the staging paths returned by `sanity_blog_prepare_publish`.
 - Treat `articlePath`, `markdownPath`, `coverPath`, slug, `reservationId`, target, mode, and revision as attempt-scoped values.
 - Never retry POST or PUT after a timeout, unknown outcome, or `remoteMutationSucceeded: true`.
@@ -109,7 +109,7 @@ If no image-generation capability is available, pause before validation and ask 
 ## Strict workflow
 
 1. Confirm that the user explicitly wants to publish. Collect the intended base slug, audience, purpose, bilingual scope, target profile, and cover requirements. Resolve ambiguity before preparing an attempt.
-2. Call `sanity_blog_check_config({})`. Stop on missing or invalid configuration. Direct the user to the documented `--init` or `--check` command without inspecting the token.
+2. Call `sanity_blog_check_config({})`. Stop on missing or invalid configuration. Capture the safe `publisherApiOrigin` and Sanity target for later confirmation; never inspect the token. Direct the user to the documented `--init` or `--check` command when configuration is invalid.
 3. Research the topic under the source-trust rules. Build the claim/source map before writing.
 4. Call `sanity_blog_prepare_publish({baseSlug})` once. Capture every returned staging path and attempt identifier. Stop if `articlePath`, `markdownPath`, `coverPath`, slug, or `reservationId` is missing.
 5. Write the complete English and Chinese Markdown at the returned `markdownPath` and explicitly generate the corresponding strict JSON at the returned `articlePath`. Convert both bodies to valid Portable Text arrays, populate localized title/excerpt/SEO fields, and end the English and Chinese bodies with linked `## Sources` and `## 来源` sections.
@@ -120,7 +120,7 @@ If no image-generation capability is available, pause before validation and ask 
    - `mode: update` is valid only when the tool observed an explicit POST conflict and internally completed the PUT dry-run. The request layer automatically omits `publishedAt` in this mode.
    - Any other, ambiguous, or failed outcome must stop the workflow.
 9. Freeze all staged files immediately after a successful probe. Do not modify the article, Markdown, cover, metadata, or source list after probing. If anything must change, do not reuse the probe result: release when safe, prepare a new attempt, validate it, and probe again.
-10. Present the final review: mode, target project/dataset/API version, slug, bilingual title and summary, material claims and sources, SEO fields, cover preview/path, and the fact that one remote mutation will follow. Ask for explicit confirmation immediately before the write sequence.
+10. Immediately before the final review, call `sanity_blog_check_config({})` again. If `publisherApiOrigin` or the Sanity target differs from the initial check or successful probe, stop, release only when safe, and start a new attempt. Present the final review with the exact publisher API origin, mode, target project/dataset/API version, slug, bilingual title and summary, material claims and sources, SEO fields, cover preview/path, and the fact that one remote mutation will follow. Ask for explicit confirmation immediately before the write sequence.
 11. If the user declines before any remote mutation, call `sanity_blog_release({slug, reservationId})` only when the tool state says release is safe.
 12. After confirmation, call `sanity_blog_commit({slug, reservationId})`. Capture the commit result. It is the only authoritative source of the final `articlePath`, `markdownPath`, and `coverPath`.
 13. Call `sanity_blog_publish({articlePath})` exactly once using the final `articlePath` returned by commit, never the pre-commit path. The final tool internally repeats the dry-run and binds the revision before the write; do not add another probe or direct request.

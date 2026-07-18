@@ -500,7 +500,7 @@ try {
         Write-Host "Existing sanityblog configuration is valid."
     }
     else {
-        Write-Host "Sanityblog configuration is missing or invalid; starting setup..."
+        Write-Host "Sanityblog publisher/Sanity configuration is missing or invalid; starting setup..."
         $rollbackPermitted = $false
         $configurationExitCode = 1
         try {
@@ -514,7 +514,7 @@ try {
             Remove-Item Env:SANITY_BLOG_TOKEN -ErrorAction SilentlyContinue
         }
         if ($configurationExitCode -ne 0) {
-            throw "Sanityblog setup failed with exit code $configurationExitCode."
+            throw "Sanityblog publisher/Sanity setup failed with exit code $configurationExitCode."
         }
     }
 
@@ -574,7 +574,7 @@ catch {
     $originalError = $_
     if (-not $rollbackPermitted -and $promoted) {
         throw (
-            "Sanity setup failed after the new plugin was activated. " +
+            "Publisher/Sanity setup failed after the new plugin was activated. " +
             "The new plugin was retained to remain compatible with any new config; " +
             "the previous plugin backup, if any, remains at $backupRoot. " +
             "Original error: $($originalError.Exception.Message)"

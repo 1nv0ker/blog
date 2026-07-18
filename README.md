@@ -39,13 +39,16 @@ MCP tools 是广泛兼容层：只要客户端支持本地 stdio MCP，就可以
 powershell -NoProfile -ExecutionPolicy Bypass -Command "irm 'https://raw.githubusercontent.com/1nv0ker/dashboard/main/install.ps1' | iex"
 ```
 
-安装器只会要求初始 Sanity 配置：
+安装器只会要求发布目标与初始 Sanity 配置：
 
-1. `projectId`
-2. `dataset`，直接回车默认使用 `production`
-3. `sanityToken`，输入时隐藏
+1. `publisherApiOrigin`：完整的裸 HTTPS origin，直接回车默认使用 `https://publish.miyaip.com`
+2. `projectId`
+3. `dataset`，直接回车默认使用 `production`
+4. `sanityToken`，输入时隐藏
 
-不再要求填写发布服务地址、Sanity API version 或 workspace。它们由插件统一管理：发布服务固定为 `https://publish.miyaip.com`，API version 固定为 `2026-07-05`，工作区自动创建在 `~/.sanity-blog/workspace`，并同时创建 `blog/assets`。
+发布接口 origin 会写入本机配置，可在重新运行 `--init` 时修改。它必须类似 `https://publisher.example.com`：包含 `https://`，不允许尾部 `/`、path、query、fragment、userinfo 或 HTTP。Sanity API version 和 workspace 不再要求填写：API version 固定为 `2026-07-05`，工作区自动创建在 `~/.sanity-blog/workspace`，并同时创建 `blog/assets`。
+
+只配置你信任的发布服务。该 origin 会接收到 `X-Sanity-Token`、Sanity target、文章正文和封面；配置检查会公开 origin 供发布前核对，但不会返回 token。
 
 安装器会自动完成这些工作：
 
@@ -56,9 +59,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command "irm 'https://raw.githubu
 - 生成指向便携运行时的 Codex 与 Claude MCP 配置；
 - 加锁并原子更新 `$HOME\.agents\plugins\marketplace.json`，保留其他插件；
 - 如果本机能找到 `codex`，自动执行插件注册；
-- 运行 `--check`，仅在配置不存在或失效时启动三项 Sanity 初始化。
+- 运行 `--check`，仅在配置不存在或失效时启动四项发布目标/Sanity 初始化。
 
-重复运行同一条命令就是更新/修复安装。已有有效 Sanity 配置会保留并跳过提问。插件目录先在 staging 中完成校验，再通过同级备份原子替换；配置初始化开始前的失败会自动回滚。若初始化本身失败，新插件会保留以兼容可能已写入的三字段配置，旧插件备份路径会在错误中明确报告。
+重复运行同一条命令就是更新/修复安装。已有有效 Sanity 配置会保留并跳过提问。插件目录先在 staging 中完成校验，再通过同级备份原子替换；配置初始化开始前的失败会自动回滚。若初始化本身失败，新插件会保留以兼容可能已写入的四字段配置，旧插件备份路径会在错误中明确报告。
 
 远程脚本会在当前用户目录写入插件、配置和 personal marketplace。希望先审阅脚本时，可改用：
 
@@ -74,6 +77,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File $installer
 非交互终端只接受以下环境变量：
 
 ```text
+SANITY_BLOG_PUBLISHER_API_ORIGIN  # 可省略，默认 https://publish.miyaip.com
 SANITY_BLOG_PROJECT_ID
 SANITY_BLOG_DATASET        # 可省略，默认 production
 SANITY_BLOG_TOKEN
@@ -87,13 +91,14 @@ token 不作为安装器参数、MCP 参数或命令行参数传递；安装器�
 
 ```json
 {
+  "publisherApiOrigin": "https://publish.miyaip.com",
   "projectId": "your-project-id",
   "dataset": "production",
   "sanityToken": "stored-locally-never-commit"
 }
 ```
 
-目录与文件会限制为当前用户访问。旧版五/六字段配置在固定发布地址和 API version 一致时仍可读取；不一致时返回 `LEGACY_CONFIG_REQUIRES_REINIT`，不会静默连接到其他目标。
+目录与文件会限制为当前用户访问。旧三字段配置继续使用默认 `https://publish.miyaip.com`；要改发布接口请重新运行 `--init`，使 origin 显式写入四字段配置。旧版五/六字段配置会保留其通过裸 HTTPS 校验的 origin 与原有 workspace 语义，但 API version 必须仍为 `2026-07-05`；不完整、origin 不安全或 API version 不一致时返回 `LEGACY_CONFIG_REQUIRES_REINIT`。
 
 使用安装器自带的运行时检查配置，不需要系统 Node.js：
 
@@ -102,7 +107,7 @@ $plugin = Join-Path $HOME 'plugins\sanityblog'
 & "$plugin\runtime\node.exe" "$plugin\src\cli.mjs" --check
 ```
 
-需要更换 Sanity 项目或 token 时重新初始化：
+需要更换发布接口 origin、Sanity 项目或 token 时重新初始化：
 
 ```powershell
 $plugin = Join-Path $HOME 'plugins\sanityblog'
@@ -418,7 +423,7 @@ $plugin = Join-Path $HOME 'plugins\sanityblog'
 & "$plugin\runtime\node.exe" "$plugin\src\cli.mjs" --check
 ```
 
-初始化仍只询问 Sanity project ID、dataset 和隐藏 token。不要把配置文件内容粘贴给 AI；只提供脱敏后的错误 code 和安全 receipt 字段。
+初始化只询问发布 API origin、Sanity project ID、dataset 和隐藏 token。发布前核对 `--check` 返回的 origin；不要把完整配置文件粘贴给 AI，只提供脱敏后的错误 code 和安全 receipt 字段。
 
 ### 发布或更新结果不确定
 

@@ -1,4 +1,5 @@
 {
+  "publisherApiOrigin": "https://publish.miyaip.com",
   "projectId": "your-project-id",
   "dataset": "production",
   "sanityToken": "replace-locally-never-commit"

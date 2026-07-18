@@ -60,6 +60,10 @@ test('publish creates with one dry-run and one final POST from one timestamped s
   assert.equal(result.recordPath, 'C:\\records\\example-post.json')
   assert.equal(setup.calls.length, 2)
   assert.deepEqual(setup.calls.map((call) => call.options.method), ['POST', 'POST'])
+  assert.deepEqual(setup.calls.map((call) => call.url), [
+    'https://publisher.example.test/v1/blog-posts?dryRun=true',
+    'https://publisher.example.test/v1/blog-posts',
+  ])
   const dryArticle = JSON.parse(setup.calls[0].options.body.toString('utf8'))
   const finalArticle = JSON.parse(setup.calls[1].options.body.toString('utf8'))
   assert.equal(dryArticle.publishedAt, '2026-07-18T12:00:00.000Z')
@@ -67,6 +71,32 @@ test('publish creates with one dry-run and one final POST from one timestamped s
   assert.equal(setup.records.length, 1)
   assert.deepEqual(setup.records[0].article, finalArticle)
   assert.equal(setup.records[0].operation, 'created')
+})
+
+test('request layer rejects non-canonical publisher origins before fetch', async (t) => {
+  const fixture = await createArticleFixture()
+  t.after(() => rm(fixture.workspaceRoot, {recursive: true, force: true}))
+
+  for (const publisherApiOrigin of [
+    'http://publisher.example.test',
+    'https://publisher.example.test/',
+    'https://publisher.example.test:443',
+    'https://USER@publisher.example.test',
+  ]) {
+    const calls = []
+    const service = createBlogService({
+      loadConfigImpl: async () => ({...fixture.config, publisherApiOrigin}),
+      fetchImpl: async (url, options) => {
+        calls.push({url, options})
+        throw new Error('fetch must not run')
+      },
+    })
+    await assert.rejects(
+      service.probePublish(fixture.articlePath),
+      (error) => error.code === 'PUBLISHER_ORIGIN_INVALID',
+    )
+    assert.equal(calls.length, 0)
+  }
 })
 
 test('publish falls back only after a sanitized conflict and binds update id/revision', async (t) => {

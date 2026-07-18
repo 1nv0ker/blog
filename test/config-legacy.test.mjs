@@ -26,9 +26,17 @@ test('legacy five-field configuration receives the original MIYA workspace defau
   assert.equal(Object.keys(config).includes('sanityToken'), false)
 })
 
+test('legacy configuration preserves a custom bare HTTPS publisher origin', () => {
+  const config = validateConfigObject({
+    ...legacyConfig,
+    publisherApiOrigin: 'https://publisher.example.test',
+  })
+  assert.equal(config.publisherApiOrigin, 'https://publisher.example.test')
+  assert.equal(config.workspaceRoot, LEGACY_DEFAULT_WORKSPACE_ROOT)
+})
+
 test('legacy managed overrides require reinitialization', () => {
   for (const candidate of [
-    {...legacyConfig, publisherApiOrigin: 'https://unsupported.example.test'},
     {...legacyConfig, apiVersion: '2025-01-01'},
     {
       projectId: 'project1',
