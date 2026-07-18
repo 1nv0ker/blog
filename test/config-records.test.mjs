@@ -1,19 +1,28 @@
 import assert from "node:assert/strict";
-import { chmod, lstat, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { execFile } from "node:child_process";
+import { chmod, lstat, mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { promisify } from "node:util";
 
 import {
+  applyPrivatePermissions,
   checkConfig,
+  getDefaultWorkspaceRoot,
   initializeConfig,
   loadConfig,
   validateConfigObject,
 } from "../src/config.mjs";
+import {
+  DEFAULT_PUBLISHER_API_ORIGIN,
+  DEFAULT_SANITY_API_VERSION,
+} from "../src/constants.mjs";
 import { SafeError, toSafeErrorResult } from "../src/errors.mjs";
 import { writePublicationRecord } from "../src/records.mjs";
 
 const noopAcl = async () => {};
+const execFileAsync = promisify(execFile);
 
 async function fixture() {
   const homeDir = await mkdtemp(path.join(os.tmpdir(), "sanityblog-records-"));
@@ -23,7 +32,7 @@ async function fixture() {
     homeDir,
     workspaceRoot,
     config: {
-      publisherApiOrigin: "https://publisher.example.test",
+      publisherApiOrigin: DEFAULT_PUBLISHER_API_ORIGIN,
       projectId: "project-id",
       dataset: "production",
       apiVersion: "2026-07-05",
@@ -84,6 +93,70 @@ test("SafeError serialization only exposes explicitly safe fields", () => {
   });
 });
 
+test(
+  "Windows ACL replaces explicit other-user access and ignores USERNAME spoofing",
+  { skip: process.platform !== "win32" },
+  async (t) => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "sanityblog acl ' & -"));
+    t.after(() => rm(root, { recursive: true, force: true }));
+    const file = path.join(root, "config ' & file.json");
+    await writeFile(file, "{}", "utf8");
+    await execFileAsync("icacls.exe", [root, "/grant", "*S-1-1-0:(OI)(CI)R"]);
+    await execFileAsync("icacls.exe", [file, "/grant", "*S-1-1-0:R"]);
+
+    const originalUserName = process.env.USERNAME;
+    try {
+      process.env.USERNAME = "not-the-current-user";
+      await applyPrivatePermissions(root, "directory");
+      await applyPrivatePermissions(file, "file");
+    } finally {
+      if (originalUserName === undefined) {
+        delete process.env.USERNAME;
+      } else {
+        process.env.USERNAME = originalUserName;
+      }
+    }
+  },
+);
+test("managed configuration persists only Sanity fields and creates the local workspace", async (t) => {
+  const homeDir = await mkdtemp(path.join(os.tmpdir(), "sanityblog-managed-config-"));
+  t.after(() => rm(homeDir, { recursive: true, force: true }));
+
+  const summary = await initializeConfig(
+    {
+      projectId: "project-id",
+      dataset: "production",
+      sanityToken: "secret-token-never-serialize",
+    },
+    { homeDir, platform: process.platform, acl: noopAcl },
+  );
+
+  const configPath = path.join(homeDir, ".sanity-blog", "config.json");
+  const persisted = JSON.parse(await readFile(configPath, "utf8"));
+  assert.deepEqual(Object.keys(persisted), ["projectId", "dataset", "sanityToken"]);
+  assert.deepEqual(persisted, {
+    projectId: "project-id",
+    dataset: "production",
+    sanityToken: "secret-token-never-serialize",
+  });
+
+  const workspaceRoot = getDefaultWorkspaceRoot(homeDir);
+  for (const directory of [
+    workspaceRoot,
+    path.join(workspaceRoot, "blog"),
+    path.join(workspaceRoot, "blog", "assets"),
+  ]) {
+    const stats = await lstat(directory);
+    assert.equal(stats.isDirectory(), true);
+    assert.equal(stats.isSymbolicLink(), false);
+  }
+
+  const loaded = await loadConfig({ homeDir, acl: noopAcl });
+  assert.equal(loaded.publisherApiOrigin, DEFAULT_PUBLISHER_API_ORIGIN);
+  assert.equal(loaded.apiVersion, DEFAULT_SANITY_API_VERSION);
+  assert.equal(loaded.workspaceRoot, workspaceRoot);
+  assert.equal(summary.workspaceRoot, workspaceRoot);
+});
 test("configuration initializes atomically and safe summaries omit token and origin", async (t) => {
   const value = await fixture();
   t.after(() => rm(value.homeDir, { recursive: true, force: true }));
@@ -106,7 +179,7 @@ test("configuration initializes atomically and safe summaries omit token and ori
   assert.equal((await checkConfig({ homeDir: value.homeDir, acl: noopAcl })).configured, true);
 });
 
-test("configuration rejects unknown keys and non-bare origins", async (t) => {
+test("configuration rejects unknown keys and requires reinit for malformed legacy targets", async (t) => {
   const value = await fixture();
   t.after(() => rm(value.homeDir, { recursive: true, force: true }));
   await assert.rejects(
@@ -121,7 +194,8 @@ test("configuration rejects unknown keys and non-bare origins", async (t) => {
       { ...value.config, publisherApiOrigin: "https://publisher.example.test/" },
       { homeDir: value.homeDir, acl: noopAcl },
     ),
-    (error) => error instanceof SafeError && error.code === "INVALID_CONFIG",
+    (error) =>
+      error instanceof SafeError && error.code === "LEGACY_CONFIG_REQUIRES_REINIT",
   );
 });
 
@@ -171,6 +245,69 @@ test("configuration path rejects a symbolic-link file", async (t) => {
   );
 });
 
+test("managed workspace check rejects a replaced assets junction", async (t) => {
+  const homeDir = await mkdtemp(path.join(os.tmpdir(), "sanityblog-managed-junction-"));
+  t.after(() => rm(homeDir, { recursive: true, force: true }));
+  await initializeConfig(
+    {
+      projectId: "project-id",
+      dataset: "production",
+      sanityToken: "secret-token-never-serialize",
+    },
+    { homeDir, acl: noopAcl },
+  );
+
+  const assetsPath = path.join(getDefaultWorkspaceRoot(homeDir), "blog", "assets");
+  const elsewhere = path.join(homeDir, "elsewhere");
+  await rm(assetsPath, { recursive: true });
+  await mkdir(elsewhere);
+  try {
+    await symlink(elsewhere, assetsPath, process.platform === "win32" ? "junction" : "dir");
+  } catch (error) {
+    if (error?.code === "EPERM") {
+      t.skip("Creating a managed-workspace link is unavailable.");
+      return;
+    }
+    throw error;
+  }
+
+  await assert.rejects(
+    loadConfig({ homeDir, acl: noopAcl }),
+    (error) => error instanceof SafeError && error.code === "UNSAFE_CONFIG_PATH",
+  );
+});
+
+test("failed config temp-file permissions preserve the previous bytes", async (t) => {
+  const homeDir = await mkdtemp(path.join(os.tmpdir(), "sanityblog-config-atomic-"));
+  t.after(() => rm(homeDir, { recursive: true, force: true }));
+  const first = {
+    projectId: "project-id",
+    dataset: "production",
+    sanityToken: "first-secret-token",
+  };
+  await initializeConfig(first, { homeDir, acl: noopAcl });
+  const configDirectory = path.join(homeDir, ".sanity-blog");
+  const configPath = path.join(configDirectory, "config.json");
+  const before = await readFile(configPath, "utf8");
+  const failingAcl = async (targetPath, { kind }) => {
+    if (kind === "file" && path.basename(targetPath).startsWith(".config.")) {
+      throw new Error("simulated temp ACL failure");
+    }
+  };
+
+  await assert.rejects(
+    initializeConfig(
+      { ...first, sanityToken: "replacement-secret-token" },
+      { homeDir, platform: "win32", acl: failingAcl },
+    ),
+    (error) => error instanceof SafeError && error.code === "UNSAFE_PERMISSIONS",
+  );
+  assert.equal(await readFile(configPath, "utf8"), before);
+  assert.equal(
+    (await readdir(configDirectory)).some((name) => name.startsWith(".config.")),
+    false,
+  );
+});
 test("publication record uses the strict schema and result whitelist", async (t) => {
   const value = await fixture();
   t.after(() => rm(value.homeDir, { recursive: true, force: true }));

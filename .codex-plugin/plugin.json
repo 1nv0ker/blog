@@ -1,6 +1,6 @@
 {
   "name": "sanityblog",
-  "version": "0.1.0",
+  "version": "0.1.0+codex.20260718133914",
   "description": "Safely validate, publish, and update blog content through a local stdio MCP server.",
   "author": {
     "name": "Local developer"

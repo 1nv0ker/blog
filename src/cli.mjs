@@ -5,14 +5,19 @@ import path from 'node:path'
 import {fileURLToPath} from 'node:url'
 import {createInterface} from 'node:readline/promises'
 
-import {
-  DEFAULT_WORKSPACE_ROOT,
-  checkConfig,
-  initializeConfig,
-} from './config.mjs'
-import {toSafeErrorResult} from './errors.mjs'
+import {checkConfig, initializeConfig} from './config.mjs'
+import {SafeError, toSafeErrorResult} from './errors.mjs'
 import {asSafeError} from './service.mjs'
 
+function configurationInputError(code, safeMessage) {
+  return new SafeError({
+    category: 'configuration',
+    code,
+    retryable: false,
+    resultUnknown: false,
+    safeMessage,
+  })
+}
 function printJson(value, stream = process.stdout) {
   stream.write(`${JSON.stringify(value, null, 2)}\n`)
 }
@@ -25,8 +30,9 @@ async function askVisible(readline, label, defaultValue) {
 
 async function askHidden(label) {
   if (!process.stdin.isTTY) {
-    throw new Error(
-      'SANITY_BLOG_TOKEN must be set when --init is used without an interactive terminal.',
+    throw configurationInputError(
+      'CONFIG_INPUT_REQUIRED',
+      'SANITY_BLOG_TOKEN is required for non-interactive initialization.',
     )
   }
   process.stderr.write(`${label}: `)
@@ -49,25 +55,30 @@ async function askHidden(label) {
 }
 
 async function collectConfiguration() {
-  if (!process.stdin.isTTY && !process.env.SANITY_BLOG_TOKEN) {
-    throw new Error('Interactive input or SANITY_BLOG_TOKEN is required for --init.')
+  if (!process.stdin.isTTY) {
+    const projectId = process.env.SANITY_BLOG_PROJECT_ID?.trim()
+    const sanityToken = process.env.SANITY_BLOG_TOKEN?.trim()
+    if (!projectId || !sanityToken) {
+      throw configurationInputError(
+        'CONFIG_INPUT_REQUIRED',
+        'SANITY_BLOG_PROJECT_ID and SANITY_BLOG_TOKEN are required for non-interactive initialization.',
+      )
+    }
+    return {
+      projectId,
+      dataset: process.env.SANITY_BLOG_DATASET?.trim() || 'production',
+      sanityToken,
+    }
   }
+
   const readline = createInterface({
     input: process.stdin,
     output: process.stderr,
-    terminal: Boolean(process.stdin.isTTY),
+    terminal: true,
   })
-  let publisherApiOrigin
   let projectId
   let dataset
-  let apiVersion
-  let workspaceRoot
   try {
-    publisherApiOrigin = await askVisible(
-      readline,
-      'Publisher API HTTPS origin',
-      process.env.SANITY_BLOG_PUBLISHER_API_ORIGIN,
-    )
     projectId = await askVisible(
       readline,
       'Sanity project ID',
@@ -78,33 +89,19 @@ async function collectConfiguration() {
       'Sanity dataset',
       process.env.SANITY_BLOG_DATASET ?? 'production',
     )
-    apiVersion = await askVisible(
-      readline,
-      'Sanity API version',
-      process.env.SANITY_BLOG_API_VERSION ?? '2026-07-05',
-    )
-    workspaceRoot = await askVisible(
-      readline,
-      'Workspace root',
-      process.env.SANITY_BLOG_WORKSPACE_ROOT ?? DEFAULT_WORKSPACE_ROOT,
-    )
   } finally {
     readline.close()
   }
   const sanityToken = process.env.SANITY_BLOG_TOKEN ?? (await askHidden('Sanity token (hidden)'))
-  return {
-    publisherApiOrigin,
-    projectId,
-    dataset,
-    apiVersion,
-    sanityToken,
-    workspaceRoot,
-  }
+  return {projectId, dataset, sanityToken}
 }
 
 export async function runCli(args = process.argv.slice(2)) {
   if (args.length !== 1 || !['--init', '--check', '--help'].includes(args[0])) {
-    throw new Error('Use exactly one of --init, --check, or --help.')
+    throw configurationInputError(
+      'INVALID_CLI_ARGUMENTS',
+      'Use exactly one of --init, --check, or --help.',
+    )
   }
   if (args[0] === '--help') {
     return {

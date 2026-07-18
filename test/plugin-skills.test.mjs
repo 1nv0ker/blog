@@ -24,9 +24,10 @@ test('package and dual plugin manifests expose pinned compatible metadata', asyn
   assert.equal(packageJson.engines.node, '>=22.12')
   assert.equal(packageJson.dependencies['@modelcontextprotocol/sdk'], '1.29.0')
   assert.equal(packageJson.dependencies.zod, '3.25.76')
+  assert.match(codex.version, /^0\.1\.0\+codex\.[0-9A-Za-z.-]+$/u)
+  assert.equal(claude.version, '0.1.0')
   for (const manifest of [codex, claude]) {
     assert.equal(manifest.name, 'sanityblog')
-    assert.equal(manifest.version, '0.1.0')
     assert.equal(manifest.author.name, 'Local developer')
     assert.equal(manifest.skills, './skills/')
   }
@@ -103,13 +104,37 @@ test('update skill requires local and remote existence and remains PUT-only', as
   assert.doesNotMatch(workflow, /sanity_blog_publish\(/u)
 })
 
-test('README documents installation, broad MCP compatibility, records, and all target clients', async () => {
+test('one-click installer and minimal configuration are packaged', async () => {
+  const installer = await text('install.ps1')
+  const configureInstall = await text('scripts/configure-install.mjs')
+  const example = await json('config.example.json')
+
+  assert.deepEqual(Object.keys(example), ['projectId', 'dataset', 'sanityToken'])
+  assert.match(installer, /NodeVersion = "22\.23\.1"/u)
+  assert.match(installer, /SHASUMS256\.txt/u)
+  assert.match(installer, /--omit=dev --ignore-scripts/u)
+  assert.match(installer, /Test-SanityBlogConfiguration/u)
+  assert.match(configureInstall, /INSTALLED_BY_DEFAULT/u)
+  assert.match(configureInstall, /ON_INSTALL/u)
+  assert.match(configureInstall, /runtime["', ]+, "node\.exe"/u)
+  assert.doesNotMatch(installer, /--(?:sanity-)?token\b/iu)
+})
+
+test('README documents one-click installation, broad MCP compatibility, and records', async () => {
   const readme = await text('README.md')
   for (const phrase of [
+    '不需要预先安装 Git、Node.js 或 npm',
+    'raw.githubusercontent.com/1nv0ker/dashboard/main/install.ps1',
+    'Node.js 22.23.1',
     'Node.js 22.12',
     'npm install',
+    'SANITY_BLOG_PROJECT_ID',
+    'SANITY_BLOG_DATASET',
+    'SANITY_BLOG_TOKEN',
+    '~/.sanity-blog/workspace',
     '--init',
     '--check',
+    'INSTALLED_BY_DEFAULT / ON_INSTALL',
     'Codex',
     'Claude Desktop',
     'Claude Code',
@@ -127,7 +152,7 @@ test('README documents installation, broad MCP compatibility, records, and all t
   ]) {
     assert.ok(readme.includes(phrase), `README is missing ${phrase}`)
   }
-  assert.match(readme, /"command": "node"/u)
+  assert.match(readme, /"command": "C:\\\\Users\\\\YOUR_NAME.*runtime\\\\node\.exe"/u)
   assert.match(readme, /"args": \[/u)
   assert.match(readme, /同一 slug/u)
   assert.match(readme, /原子/u)

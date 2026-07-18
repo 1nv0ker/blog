@@ -14,12 +14,22 @@ import crypto from "node:crypto";
 import { promisify } from "node:util";
 import { execFile } from "node:child_process";
 
+import {
+  DEFAULT_PUBLISHER_API_ORIGIN,
+  DEFAULT_SANITY_API_VERSION,
+} from "./constants.mjs";
 import { SafeError } from "./errors.mjs";
 
-export const DEFAULT_WORKSPACE_ROOT = "C:\\work\\MIYA-LLC-WEB\\miyaip2026";
 export const CONFIG_DIRECTORY_NAME = ".sanity-blog";
 export const CONFIG_FILE_NAME = "config.json";
 export const CONFIG_MAX_BYTES = 64 * 1024;
+export const LEGACY_DEFAULT_WORKSPACE_ROOT = "C:\\work\\MIYA-LLC-WEB\\miyaip2026";
+
+export function getDefaultWorkspaceRoot(homeDir = os.homedir()) {
+  return path.join(homeDir, CONFIG_DIRECTORY_NAME, "workspace");
+}
+
+export const DEFAULT_WORKSPACE_ROOT = getDefaultWorkspaceRoot();
 
 const ALLOWED_CONFIG_KEYS = new Set([
   "publisherApiOrigin",
@@ -29,7 +39,130 @@ const ALLOWED_CONFIG_KEYS = new Set([
   "sanityToken",
   "workspaceRoot",
 ]);
+const LEGACY_MANAGED_FIELDS = ["publisherApiOrigin", "apiVersion", "workspaceRoot"];
 const execFileAsync = promisify(execFile);
+const WINDOWS_ACL_SCRIPT = String.raw`
+$ErrorActionPreference = "Stop"
+$targetPath = $env:SANITY_BLOG_ACL_TARGET
+$kind = $env:SANITY_BLOG_ACL_KIND
+if ([string]::IsNullOrWhiteSpace($targetPath)) {
+  throw "The ACL target path is missing."
+}
+$currentSid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User
+if ($null -eq $currentSid) {
+  throw "The current Windows SID is unavailable."
+}
+if ($kind -eq "directory") {
+  $item = [System.IO.DirectoryInfo]::new($targetPath)
+  $ownerSecurity = $item.GetAccessControl(
+    [System.Security.AccessControl.AccessControlSections]::Owner
+  )
+  $security = $item.GetAccessControl(
+    [System.Security.AccessControl.AccessControlSections]::Access
+  )
+  $inheritance = [System.Security.AccessControl.InheritanceFlags]::ContainerInherit -bor
+    [System.Security.AccessControl.InheritanceFlags]::ObjectInherit
+  $rule = [System.Security.AccessControl.FileSystemAccessRule]::new(
+    $currentSid,
+    [System.Security.AccessControl.FileSystemRights]::FullControl,
+    $inheritance,
+    [System.Security.AccessControl.PropagationFlags]::None,
+    [System.Security.AccessControl.AccessControlType]::Allow
+  )
+}
+elseif ($kind -eq "file") {
+  $item = [System.IO.FileInfo]::new($targetPath)
+  $ownerSecurity = $item.GetAccessControl(
+    [System.Security.AccessControl.AccessControlSections]::Owner
+  )
+  $security = $item.GetAccessControl(
+    [System.Security.AccessControl.AccessControlSections]::Access
+  )
+  $rule = [System.Security.AccessControl.FileSystemAccessRule]::new(
+    $currentSid,
+    [System.Security.AccessControl.FileSystemRights]::FullControl,
+    [System.Security.AccessControl.AccessControlType]::Allow
+  )
+}
+else {
+  throw "The ACL target kind is invalid."
+}
+$currentOwner = $ownerSecurity.GetOwner(
+  [System.Security.Principal.SecurityIdentifier]
+)
+if ($currentOwner.Value -ne $currentSid.Value) {
+  throw "The ACL target is not owned by the current Windows user."
+}
+$security.SetAccessRuleProtection($true, $false)
+foreach ($existingRule in @($security.Access)) {
+  [void]$security.RemoveAccessRuleSpecific($existingRule)
+}
+[void]$security.AddAccessRule($rule)
+$item.SetAccessControl($security)
+$verified = Get-Acl -LiteralPath $targetPath
+$verifiedOwner = $verified.GetOwner([System.Security.Principal.SecurityIdentifier])
+$rules = @($verified.Access)
+if (-not $verified.AreAccessRulesProtected -or $verifiedOwner.Value -ne $currentSid.Value) {
+  throw "The protected owner-only ACL was not applied."
+}
+if ($rules.Count -ne 1) {
+  throw "The protected ACL contains unexpected access rules."
+}
+$verifiedRule = $rules[0]
+$verifiedSid = $verifiedRule.IdentityReference.Translate(
+  [System.Security.Principal.SecurityIdentifier]
+)
+$fullControl = [System.Security.AccessControl.FileSystemRights]::FullControl
+if (
+  $verifiedSid.Value -ne $currentSid.Value -or
+  $verifiedRule.AccessControlType -ne [System.Security.AccessControl.AccessControlType]::Allow -or
+  $verifiedRule.IsInherited -or
+  (($verifiedRule.FileSystemRights -band $fullControl) -ne $fullControl)
+) {
+  throw "The protected ACL verification failed."
+}
+if ($kind -eq "directory") {
+  $expectedInheritance = [System.Security.AccessControl.InheritanceFlags]::ContainerInherit -bor
+    [System.Security.AccessControl.InheritanceFlags]::ObjectInherit
+  if (($verifiedRule.InheritanceFlags -band $expectedInheritance) -ne $expectedInheritance) {
+    throw "The protected directory ACL inheritance flags are invalid."
+  }
+}
+elseif ($verifiedRule.InheritanceFlags -ne [System.Security.AccessControl.InheritanceFlags]::None) {
+  throw "The protected file ACL inheritance flags are invalid."
+}
+`;
+const WINDOWS_ACL_COMMAND = Buffer.from(WINDOWS_ACL_SCRIPT, "utf16le").toString("base64");
+const WINDOWS_ACL_ENVIRONMENT_KEYS = new Set([
+  "ALLUSERSPROFILE",
+  "APPDATA",
+  "COMMONPROGRAMFILES",
+  "COMMONPROGRAMFILES(X86)",
+  "COMMONPROGRAMW6432",
+  "COMSPEC",
+  "HOME",
+  "HOMEDRIVE",
+  "HOMEPATH",
+  "LOCALAPPDATA",
+  "OS",
+  "PATH",
+  "PATHEXT",
+  "PROCESSOR_ARCHITECTURE",
+  "PROGRAMDATA",
+  "PROGRAMFILES",
+  "PROGRAMFILES(X86)",
+  "PROGRAMW6432",
+  "PSMODULEPATH",
+  "PUBLIC",
+  "SYSTEMDRIVE",
+  "SYSTEMROOT",
+  "TEMP",
+  "TMP",
+  "USERDOMAIN",
+  "USERNAME",
+  "USERPROFILE",
+  "WINDIR",
+]);
 
 function configError(code, safeMessage, cause) {
   return new SafeError({
@@ -104,7 +237,15 @@ function validateWorkspaceRoot(value) {
   return path.normalize(workspaceRoot);
 }
 
-export function validateConfigObject(input) {
+function hasOwn(input, key) {
+  return input !== null && typeof input === "object" && Object.hasOwn(input, key);
+}
+
+function usesManagedDefaults(input) {
+  return !LEGACY_MANAGED_FIELDS.some((field) => hasOwn(input, field));
+}
+
+export function validateConfigObject(input, { homeDir = os.homedir() } = {}) {
   if (input === null || typeof input !== "object" || Array.isArray(input)) {
     throw configError("INVALID_CONFIG", "Configuration must be a JSON object.");
   }
@@ -119,18 +260,50 @@ export function validateConfigObject(input) {
     }
   }
 
-  const publisherApiOrigin = validateOrigin(input.publisherApiOrigin);
   const projectId = requireTrimmedString(input.projectId, "projectId", 64);
   const dataset = requireTrimmedString(input.dataset, "dataset", 64);
-  const apiVersion = validateApiVersion(input.apiVersion);
   const sanityToken = requireTrimmedString(input.sanityToken, "sanityToken", 4096);
-  const workspaceRoot = validateWorkspaceRoot(input.workspaceRoot ?? DEFAULT_WORKSPACE_ROOT);
 
   if (!/^[a-z0-9][a-z0-9-]*$/u.test(projectId)) {
     throw configError("INVALID_CONFIG", "projectId contains unsupported characters.");
   }
   if (!/^[A-Za-z0-9_-]+$/u.test(dataset)) {
     throw configError("INVALID_CONFIG", "dataset contains unsupported characters.");
+  }
+
+  let publisherApiOrigin = DEFAULT_PUBLISHER_API_ORIGIN;
+  let apiVersion = DEFAULT_SANITY_API_VERSION;
+  let workspaceRoot = getDefaultWorkspaceRoot(homeDir);
+
+  if (!usesManagedDefaults(input)) {
+    if (!hasOwn(input, "publisherApiOrigin") || !hasOwn(input, "apiVersion")) {
+      throw configError(
+        "LEGACY_CONFIG_REQUIRES_REINIT",
+        "Legacy configuration is incomplete. Run the initializer again.",
+      );
+    }
+    try {
+      publisherApiOrigin = validateOrigin(input.publisherApiOrigin);
+      apiVersion = validateApiVersion(input.apiVersion);
+    } catch (error) {
+      throw configError(
+        "LEGACY_CONFIG_REQUIRES_REINIT",
+        "Legacy configuration targets unsupported managed settings. Run the initializer again.",
+        error,
+      );
+    }
+    if (
+      publisherApiOrigin !== DEFAULT_PUBLISHER_API_ORIGIN ||
+      apiVersion !== DEFAULT_SANITY_API_VERSION
+    ) {
+      throw configError(
+        "LEGACY_CONFIG_REQUIRES_REINIT",
+        "Legacy configuration targets unsupported managed settings. Run the initializer again.",
+      );
+    }
+    workspaceRoot = hasOwn(input, "workspaceRoot")
+      ? validateWorkspaceRoot(input.workspaceRoot)
+      : LEGACY_DEFAULT_WORKSPACE_ROOT;
   }
 
   const config = {
@@ -162,18 +335,55 @@ export function getConfigPaths(homeDir = os.homedir()) {
   };
 }
 
-export async function defaultWindowsAcl(targetPath, { kind }) {
-  const userName = process.env.USERNAME;
-  if (!userName) {
-    throw new Error("Windows user identity is unavailable.");
+function windowsAclEnvironment(targetPath, kind) {
+  const environment = {};
+  for (const [key, value] of Object.entries(process.env)) {
+    if (WINDOWS_ACL_ENVIRONMENT_KEYS.has(key.toUpperCase()) && value !== undefined) {
+      environment[key] = value;
+    }
   }
+  environment.SANITY_BLOG_ACL_TARGET = targetPath;
+  environment.SANITY_BLOG_ACL_KIND = kind;
+  return environment;
+}
 
-  const grant = kind === "directory" ? `${userName}:(OI)(CI)F` : `${userName}:F`;
-  await execFileAsync(
-    "icacls.exe",
-    [targetPath, "/inheritance:r", "/grant:r", grant],
-    { windowsHide: true, timeout: 15_000 },
+function getWindowsPowerShellPath() {
+  const systemRoot = process.env.SystemRoot ?? process.env.WINDIR;
+  if (
+    typeof systemRoot !== "string" ||
+    !path.win32.isAbsolute(systemRoot) ||
+    /[\u0000-\u001f\u007f]/u.test(systemRoot)
+  ) {
+    throw new Error("The Windows system root is unavailable.");
+  }
+  return path.win32.join(
+    systemRoot,
+    "System32",
+    "WindowsPowerShell",
+    "v1.0",
+    "powershell.exe",
   );
+}
+export async function defaultWindowsAcl(targetPath, { kind }) {
+  await execFileAsync(
+    getWindowsPowerShellPath(),
+    ["-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand", WINDOWS_ACL_COMMAND],
+    {
+      env: windowsAclEnvironment(targetPath, kind),
+      windowsHide: true,
+      timeout: 30_000,
+    },
+  );
+}
+function samePathIdentity(left, right) {
+  return (
+    left.dev === right.dev &&
+    (left.ino === 0 || right.ino === 0 || left.ino === right.ino)
+  );
+}
+
+function isExpectedPathKind(stats, kind) {
+  return kind === "directory" ? stats.isDirectory() : stats.isFile();
 }
 
 export async function applyPrivatePermissions(
@@ -181,30 +391,38 @@ export async function applyPrivatePermissions(
   kind,
   { platform = process.platform, acl = defaultWindowsAcl } = {},
 ) {
-  if (platform === "win32") {
-    if (typeof acl !== "function") {
-      throw configError("UNSAFE_PERMISSIONS", "A Windows ACL helper is required.");
-    }
-    try {
-      await acl(targetPath, { kind });
-    } catch (error) {
-      throw configError("UNSAFE_PERMISSIONS", "Unable to restrict access to the current user.", error);
-    }
-    return;
-  }
-
-  const expectedMode = kind === "directory" ? 0o700 : 0o600;
+  let beforeStats;
   try {
-    await chmod(targetPath, expectedMode);
-    const stats = await lstat(targetPath);
-    if ((stats.mode & 0o077) !== 0) {
+    beforeStats = await lstat(targetPath);
+    if (beforeStats.isSymbolicLink() || !isExpectedPathKind(beforeStats, kind)) {
+      throw new Error("The protected path has an unsafe type.");
+    }
+
+    if (platform === "win32") {
+      if (typeof acl !== "function") {
+        throw new Error("A Windows ACL helper is required.");
+      }
+      await acl(targetPath, { kind });
+    } else {
+      const expectedMode = kind === "directory" ? 0o700 : 0o600;
+      await chmod(targetPath, expectedMode);
+    }
+
+    const afterStats = await lstat(targetPath);
+    if (
+      afterStats.isSymbolicLink() ||
+      !isExpectedPathKind(afterStats, kind) ||
+      !samePathIdentity(beforeStats, afterStats)
+    ) {
+      throw new Error("The protected path changed while permissions were applied.");
+    }
+    if (platform !== "win32" && (afterStats.mode & 0o077) !== 0) {
       throw new Error("Permissions remain accessible to other users.");
     }
   } catch (error) {
     throw configError("UNSAFE_PERMISSIONS", "Unable to restrict access to the current user.", error);
   }
 }
-
 export async function assertOrdinaryPath(targetPath, kind, code = "UNSAFE_CONFIG_PATH") {
   let stats;
   try {
@@ -246,21 +464,29 @@ async function readConfigFile(configPath, expectedStats) {
     if (!openedStats.isFile()) {
       throw configError("UNSAFE_CONFIG_PATH", "Configuration must be an ordinary file.");
     }
-    if (
-      expectedStats.dev !== openedStats.dev ||
-      (expectedStats.ino !== 0 && openedStats.ino !== 0 && expectedStats.ino !== openedStats.ino)
-    ) {
+    if (!samePathIdentity(expectedStats, openedStats)) {
       throw configError("UNSAFE_CONFIG_PATH", "Configuration changed while it was being opened.");
     }
     if (openedStats.size > CONFIG_MAX_BYTES) {
       throw configError("CONFIG_TOO_LARGE", "Configuration exceeds the size limit.");
     }
     return await handle.readFile({ encoding: "utf8" });
+  } catch (error) {
+    if (error instanceof SafeError) {
+      throw error;
+    }
+    if (isMissing(error)) {
+      throw configError(
+        "UNSAFE_CONFIG_PATH",
+        "Configuration changed while it was being opened.",
+        error,
+      );
+    }
+    throw configError("CONFIG_READ_FAILED", "Unable to read Sanity blog configuration.", error);
   } finally {
-    await handle?.close();
+    await handle?.close().catch(() => {});
   }
 }
-
 export async function loadConfig({
   homeDir = os.homedir(),
   platform = process.platform,
@@ -287,8 +513,12 @@ export async function loadConfig({
     throw configError("INVALID_CONFIG", "Configuration is not valid JSON.", error);
   }
 
-  const config = validateConfigObject(parsed);
-  await assertWorkspaceDirectory(config.workspaceRoot);
+  const config = validateConfigObject(parsed, { homeDir });
+  if (usesManagedDefaults(parsed)) {
+    await assertManagedWorkspace(config.workspaceRoot, { platform, acl });
+  } else {
+    await assertWorkspaceDirectory(config.workspaceRoot);
+  }
   return config;
 }
 
@@ -317,9 +547,40 @@ async function ensurePrivateDirectory(directoryPath, permissions) {
   }
   const stats = await lstat(directoryPath);
   if (stats.isSymbolicLink() || !stats.isDirectory()) {
-    throw configError("UNSAFE_CONFIG_PATH", "Configuration directory must be ordinary.");
+    throw configError("UNSAFE_CONFIG_PATH", "Protected local directories must be ordinary.");
   }
   await applyPrivatePermissions(directoryPath, "directory", permissions);
+}
+
+async function assertManagedWorkspace(workspaceRoot, permissions) {
+  for (const directoryPath of [
+    workspaceRoot,
+    path.join(workspaceRoot, "blog"),
+    path.join(workspaceRoot, "blog", "assets"),
+  ]) {
+    let stats;
+    try {
+      stats = await lstat(directoryPath);
+    } catch (error) {
+      throw configError(
+        "INVALID_WORKSPACE_ROOT",
+        "The managed workspace is incomplete or unavailable.",
+        error,
+      );
+    }
+    if (stats.isSymbolicLink() || !stats.isDirectory()) {
+      throw configError(
+        "UNSAFE_CONFIG_PATH",
+        "Managed workspace directories must be ordinary directories.",
+      );
+    }
+    await applyPrivatePermissions(directoryPath, "directory", permissions);
+  }
+}
+async function ensureManagedWorkspace(workspaceRoot, permissions) {
+  await ensurePrivateDirectory(workspaceRoot, permissions);
+  await ensurePrivateDirectory(path.join(workspaceRoot, "blog"), permissions);
+  await ensurePrivateDirectory(path.join(workspaceRoot, "blog", "assets"), permissions);
 }
 
 async function atomicWriteConfig(configPath, source, permissions) {
@@ -367,21 +628,33 @@ export async function initializeConfig(
     acl = defaultWindowsAcl,
   } = {},
 ) {
-  const config = validateConfigObject(input);
-  await assertWorkspaceDirectory(config.workspaceRoot);
+  const managedConfiguration = usesManagedDefaults(input);
+  const config = validateConfigObject(input, { homeDir });
   const { configDirectory, configPath } = getConfigPaths(homeDir);
 
   try {
     await mkdir(homeDir, { recursive: true });
     await ensurePrivateDirectory(configDirectory, { platform, acl });
-    const persisted = {
-      publisherApiOrigin: config.publisherApiOrigin,
-      projectId: config.projectId,
-      dataset: config.dataset,
-      apiVersion: config.apiVersion,
-      sanityToken: config.sanityToken,
-      workspaceRoot: config.workspaceRoot,
-    };
+    if (managedConfiguration) {
+      await ensureManagedWorkspace(config.workspaceRoot, { platform, acl });
+    } else {
+      await assertWorkspaceDirectory(config.workspaceRoot);
+    }
+
+    const persisted = managedConfiguration
+      ? {
+          projectId: config.projectId,
+          dataset: config.dataset,
+          sanityToken: config.sanityToken,
+        }
+      : {
+          publisherApiOrigin: config.publisherApiOrigin,
+          projectId: config.projectId,
+          dataset: config.dataset,
+          apiVersion: config.apiVersion,
+          sanityToken: config.sanityToken,
+          workspaceRoot: config.workspaceRoot,
+        };
     const source = `${JSON.stringify(persisted, null, 2)}\n`;
     if (Buffer.byteLength(source) > CONFIG_MAX_BYTES) {
       throw configError("CONFIG_TOO_LARGE", "Configuration exceeds the size limit.");

@@ -2,6 +2,8 @@
 
 `sanityblog` 是一个本机 Node.js stdio MCP Server 插件，用于准备、校验、探测、发布和更新博客文章。插件把“发布新文章”和“更新现有文章”拆成两个必须显式调用的技能，并把真正的远端写入留在最后一步确认之后。
 
+源码仓库：[1nv0ker/dashboard](https://github.com/1nv0ker/dashboard)
+
 支持的主要客户端：
 
 - Codex / ChatGPT 桌面版 Codex、Codex CLI、Codex IDE 扩展
@@ -27,298 +29,221 @@ MCP tools 是广泛兼容层：只要客户端支持本地 stdio MCP，就可以
 
 最终的 `sanity_blog_publish` 和 `sanity_blog_update` 会修改远端内容。客户端展示的 `readOnlyHint`、`destructiveHint` 等 MCP annotations 只是提示，不是权限边界；是否允许写入必须由用户确认、客户端审批策略和服务端校验共同决定。
 
-## 安装
+## Windows 一键安装（推荐）
 
-### 1. 安装 Node.js 与依赖
+源码仓库：[1nv0ker/dashboard](https://github.com/1nv0ker/dashboard)。64 位 Windows（x64 或 ARM64）只需 PowerShell 和网络连接，**不需要预先安装 Git、Node.js 或 npm**。
 
-安装 Node.js 22.12 或更高版本，并确认：
+在 PowerShell 中运行一条命令：
 
 ```powershell
-node --version
-npm --version
+powershell -NoProfile -ExecutionPolicy Bypass -Command "irm 'https://raw.githubusercontent.com/1nv0ker/dashboard/main/install.ps1' | iex"
 ```
 
-Codex 的打包配置固定指向以下路径，请把完整插件目录放在：
+安装器只会要求初始 Sanity 配置：
+
+1. `projectId`
+2. `dataset`，直接回车默认使用 `production`
+3. `sanityToken`，输入时隐藏
+
+不再要求填写发布服务地址、Sanity API version 或 workspace。它们由插件统一管理：发布服务固定为 `https://publish.miyaip.com`，API version 固定为 `2026-07-05`，工作区自动创建在 `~/.sanity-blog/workspace`，并同时创建 `blog/assets`。
+
+安装器会自动完成这些工作：
+
+- 从 GitHub 下载最新 `main` 源码；
+- 下载官方 Node.js 22.23.1 便携运行时并校验固定 SHA-256；
+- 使用便携 npm 按 lockfile 安装生产依赖；
+- 默认安装到 `$HOME\plugins\sanityblog`，不会把 Node.js 写入系统 PATH；
+- 生成指向便携运行时的 Codex 与 Claude MCP 配置；
+- 加锁并原子更新 `$HOME\.agents\plugins\marketplace.json`，保留其他插件；
+- 如果本机能找到 `codex`，自动执行插件注册；
+- 运行 `--check`，仅在配置不存在或失效时启动三项 Sanity 初始化。
+
+重复运行同一条命令就是更新/修复安装。已有有效 Sanity 配置会保留并跳过提问。插件目录先在 staging 中完成校验，再通过同级备份原子替换；配置初始化开始前的失败会自动回滚。若初始化本身失败，新插件会保留以兼容可能已写入的三字段配置，旧插件备份路径会在错误中明确报告。
+
+远程脚本会在当前用户目录写入插件、配置和 personal marketplace。希望先审阅脚本时，可改用：
+
+```powershell
+$installer = Join-Path $env:TEMP 'sanityblog-install.ps1'
+Invoke-WebRequest 'https://raw.githubusercontent.com/1nv0ker/dashboard/main/install.ps1' -OutFile $installer
+Get-Content $installer
+powershell -NoProfile -ExecutionPolicy Bypass -File $installer
+```
+
+### 自动化安装
+
+非交互终端只接受以下环境变量：
 
 ```text
-C:\work\plugins\sanityblog
+SANITY_BLOG_PROJECT_ID
+SANITY_BLOG_DATASET        # 可省略，默认 production
+SANITY_BLOG_TOKEN
 ```
 
-然后安装依赖：
+token 不作为安装器参数、MCP 参数或命令行参数传递；安装器会先从环境中移除它，只在执行 `--init` 的子进程期间临时恢复，因此便携 npm、MCP 配置 helper 和 Codex 注册进程都不会继承 token。请使用 CI/主机的秘密变量功能，安装后清除临时环境变量，不要把真实 token 写进脚本、终端历史或仓库。
+
+### 配置文件与检查
+
+新配置固定写入 `~/.sanity-blog/config.json`，文件本身只包含：
+
+```json
+{
+  "projectId": "your-project-id",
+  "dataset": "production",
+  "sanityToken": "stored-locally-never-commit"
+}
+```
+
+目录与文件会限制为当前用户访问。旧版五/六字段配置在固定发布地址和 API version 一致时仍可读取；不一致时返回 `LEGACY_CONFIG_REQUIRES_REINIT`，不会静默连接到其他目标。
+
+使用安装器自带的运行时检查配置，不需要系统 Node.js：
 
 ```powershell
-Set-Location C:\work\plugins\sanityblog
-npm install
+$plugin = Join-Path $HOME 'plugins\sanityblog'
+& "$plugin\runtime\node.exe" "$plugin\src\cli.mjs" --check
 ```
 
-如果安装到其他位置，Claude 插件仍可通过 `${CLAUDE_PLUGIN_ROOT}` 工作，但 Codex 的 `.codex-mcp.json` 以及下文各客户端的手工配置必须改成真实绝对路径。
+需要更换 Sanity 项目或 token 时重新初始化：
 
-### 2. 初始化配置
+```powershell
+$plugin = Join-Path $HOME 'plugins\sanityblog'
+& "$plugin\runtime\node.exe" "$plugin\src\cli.mjs" --init
+```
 
-配置固定保存在：
+配置和 token 不能作为任何 `sanity_blog_*` 工具参数，也不要放入 MCP 客户端 JSON。
+
+### Codex 默认安装
+
+一键安装器把插件加入默认个人 marketplace：
 
 ```text
-~/.sanity-blog/config.json
+$HOME\.agents\plugins\marketplace.json
 ```
 
-在 Windows 中通常对应：
+条目使用 `INSTALLED_BY_DEFAULT / ON_INSTALL`，并自动运行 `codex plugin add sanityblog@<marketplace-name> --json`（存在 Codex 时）。默认 personal marketplace 会被 Codex 自动发现，**不要**再运行 `codex plugin marketplace add`。
 
-```text
-%USERPROFILE%\.sanity-blog\config.json
-```
+安装或更新后完全重启 Codex/ChatGPT 桌面应用并创建新任务；已经打开的任务不会可靠地重新载入 manifest、MCP Server 或技能。发布与更新工具仍应保留“每次询问”或更严格的审批策略。
 
-推荐使用交互式初始化：
+如果 marketplace 合并失败，插件和 Sanity 配置仍会保留，安装器会发出警告；修复 `$HOME\.agents\plugins\marketplace.json` 后重新运行同一条安装命令即可。如果仅自动 Codex 注册发出警告，可根据提示手工重试；新建默认 marketplace 时通常是：
 
 ```powershell
-node C:\work\plugins\sanityblog\src\cli.mjs --init
+codex plugin add sanityblog@personal --json
 ```
-
-CLI 会根据提示或其支持的环境变量创建配置。不要把 token 放进 MCP 客户端 JSON、命令行参数、仓库文件或聊天内容。
-
-配置对象包含五个必填字段：`publisherApiOrigin`、`projectId`、`dataset`、`apiVersion`、`sanityToken`；`workspaceRoot` 是可选字段。旧版五字段配置省略 `workspaceRoot` 时，Server 默认使用 `C:\work\MIYA-LLC-WEB\miyaip2026`。这些配置字段只能来自本机配置文件，不能作为任何 `sanity_blog_*` 工具的参数；工具调用必须严格使用其公开 schema。
-
-也可以手工创建：
-
-```powershell
-New-Item -ItemType Directory -Force "$HOME\.sanity-blog"
-Copy-Item C:\work\plugins\sanityblog\config.example.json "$HOME\.sanity-blog\config.json"
-```
-
-随后只在本机编辑该文件，并限制为当前用户可访问。
-
-### 3. 检查配置与测试
-
-检查实际运行时配置：
-
-```powershell
-node C:\work\plugins\sanityblog\src\cli.mjs --check
-```
-
-`npm run check` 只是同一个安全配置检查的 npm 入口，等价于 `node src/cli.mjs --check`：
-
-```powershell
-Set-Location C:\work\plugins\sanityblog
-npm run check
-```
-
-它不运行测试，也不校验插件 manifest 或技能。运行项目测试：
-
-```powershell
-Set-Location C:\work\plugins\sanityblog
-npm test
-```
-
-必须先让配置检查成功，再连接 AI 客户端。配置变更后重启 MCP Server 或对应客户端。
 
 ## stdio 启动约定
 
-最通用、最稳妥的客户端配置是把可执行文件和参数分开：
+一键安装后的 Windows MCP 进程直接调用插件内的便携 Node，而不是 shell、`npx` 或系统 PATH：
 
 ```json
 {
-  "command": "node",
+  "command": "C:\\Users\\YOUR_NAME\\plugins\\sanityblog\\runtime\\node.exe",
   "args": [
-    "C:\\work\\plugins\\sanityblog\\src\\server.mjs"
+    "C:\\Users\\YOUR_NAME\\plugins\\sanityblog\\src\\server.mjs"
   ]
 }
 ```
 
-macOS/Linux 同样必须使用独立的绝对路径。例如把插件安装在 `/opt/sanityblog` 时：
+请把 `YOUR_NAME` 替换成真实用户名，并始终使用两个独立字段：`command` 是可执行文件绝对路径，`args` 中是 Server 绝对路径。不要使用 `~`、shell 拼接、管道或重定向。stdio Server 的 stdout 只用于 MCP JSON-RPC，日志写 stderr。
+
+一键安装器目前面向 64 位 Windows。macOS/Linux 仍可使用源码模式，或者把官方 Node 22.12+ 压缩包解压到私有目录并将 `command` 指向其中的绝对 `node` 路径；不要求全局安装。示例：
 
 ```json
 {
-  "command": "node",
+  "command": "/absolute/path/to/portable-node/bin/node",
   "args": [
-    "/opt/sanityblog/src/server.mjs"
+    "/absolute/path/to/sanityblog/src/server.mjs"
   ]
 }
 ```
-
-如果 `node` 不在服务进程的 `PATH` 中，把 `command` 改为实际绝对路径，例如 `/usr/local/bin/node`。不要在 JSON 中使用 `~` 代替绝对插件路径。
-
-Windows 注意事项：
-
-- JSON 中的反斜杠必须写成 `\\`。
-- 不要把 `node "C:\path with spaces\server.mjs"` 拼成一个 `command` 字符串。
-- 不要依赖客户端的当前工作目录；始终使用服务端文件的绝对路径。
-- 优先直接调用 `node`，不要把 `npx`、`.cmd`、管道、重定向或 shell 运算符作为跨客户端基线。
-- 如果 `node` 不在 `PATH` 中，把 `command` 改为 `C:\\Program Files\\nodejs\\node.exe`。
-- 在 WSL、SSH、Dev Container 或远程工作区中，`node` 和服务端路径必须都属于客户端实际运行的环境；不要混用 Windows 路径与 Linux Node。
-- stdio Server 的 stdout 只用于 MCP JSON-RPC。日志应写 stderr，不要在外面再套会改写 stdout 的脚本。
 
 ## 客户端配置
 
-下列配置均启动同一个本机 Server。连接后应看到以 `sanity_blog_` 开头的工具。
+一键安装会自动配置 Codex personal marketplace。其他客户端出于各自的安全边界，不应由第三方脚本静默改写其设置；把上面的 Windows stdio 子项合并到对应配置即可。连接成功后应看到全部 `sanity_blog_*` 工具。
 
 ### Codex
 
-#### 插件方式
-
-`.codex-plugin/plugin.json` 已将技能目录指向 `./skills/`，并将 MCP 配置指向 `./.codex-mcp.json`。该文件固定使用：
-
-```text
-C:\work\plugins\sanityblog\src\server.mjs
-```
-
-把插件加入 Codex 的个人或团队 marketplace 后，在插件目录中安装并启用 `sanityblog`。为写工具保留“每次询问”或更严格的审批策略，不要为 `sanity_blog_publish`、`sanity_blog_update` 自动批准。
-
-Codex 桌面 marketplace 清单位于 `C:\work\.agents\plugins\marketplace.json`。确认其中存在 `workspace → sanityblog` 映射，并将该插件标记为 `AVAILABLE`、安装策略标记为 `ON_INSTALL`。
-
-marketplace 安装或升级后，完全重启 ChatGPT/Codex 桌面应用并创建一个新任务。已经打开的任务不会可靠地重新载入新 manifest、MCP 配置或技能版本。
-
-如果暂不使用 marketplace，可直接编辑 `%USERPROFILE%\.codex\config.toml`：
+`.codex-plugin/plugin.json` 会加载 `skills/` 和安装时生成的 `.codex-mcp.json`。通常无需手工编辑 `%USERPROFILE%\.codex\config.toml`。如不用插件系统，可手工配置：
 
 ```toml
 [mcp_servers.sanityblog]
-command = "node"
-args = ["C:\\work\\plugins\\sanityblog\\src\\server.mjs"]
+command = "C:\\Users\\YOUR_NAME\\plugins\\sanityblog\\runtime\\node.exe"
+args = ["C:\\Users\\YOUR_NAME\\plugins\\sanityblog\\src\\server.mjs"]
 startup_timeout_sec = 15
 ```
 
-Codex CLI、Codex IDE 扩展和 ChatGPT 桌面版中的 Codex 使用同一类配置。ChatGPT 网页端不能读取本机 stdio 配置。
-
 ### Claude Desktop
 
-配置文件位置：
+配置位置：
 
 - Windows：`%APPDATA%\Claude\claude_desktop_config.json`
 - macOS：`~/Library/Application Support/Claude/claude_desktop_config.json`
-- Linux/XDG 兼容发行版：`${XDG_CONFIG_HOME:-~/.config}/Claude/claude_desktop_config.json`
+- Linux/XDG：`${XDG_CONFIG_HOME:-~/.config}/Claude/claude_desktop_config.json`
 
-加入：
+合并以下子项，不要覆盖已有 `mcpServers`：
 
 ```json
 {
   "mcpServers": {
     "sanityblog": {
-      "command": "node",
+      "command": "C:\\Users\\YOUR_NAME\\plugins\\sanityblog\\runtime\\node.exe",
       "args": [
-        "C:\\work\\plugins\\sanityblog\\src\\server.mjs"
+        "C:\\Users\\YOUR_NAME\\plugins\\sanityblog\\src\\server.mjs"
       ]
     }
   }
 }
 ```
 
-如果文件已有其他 `mcpServers`，只合并 `sanityblog` 子项，不要覆盖其他配置。完全退出并重新启动 Claude Desktop。
+保存后完全退出并重新启动 Claude Desktop。
 
 ### Claude Code
 
-插件开发或本机加载：
+从一键安装目录加载完整插件：
 
 ```powershell
-claude --plugin-dir C:\work\plugins\sanityblog
+claude --plugin-dir "$HOME\plugins\sanityblog"
 ```
 
-插件根目录的 `.mcp.json` 使用字面量 `${CLAUDE_PLUGIN_ROOT}/src/server.mjs`，因此 Claude Code 安装插件后可从任意插件安装目录启动 Server。不要把该字面量预先替换成 staging 路径。
-
-不使用插件系统时，可把以下内容放入项目根目录 `.mcp.json`：
-
-```json
-{
-  "mcpServers": {
-    "sanityblog": {
-      "command": "node",
-      "args": [
-        "C:\\work\\plugins\\sanityblog\\src\\server.mjs"
-      ]
-    }
-  }
-}
-```
-
-也可使用 CLI：
-
-```powershell
-claude mcp add --transport stdio sanityblog -- node C:\work\plugins\sanityblog\src\server.mjs
-```
+安装器生成的 `.mcp.json` 使用 `${CLAUDE_PLUGIN_ROOT}/runtime/node.exe` 和 `${CLAUDE_PLUGIN_ROOT}/src/server.mjs`，因此技能与 MCP Server 会一起加载。也可把 `skills/sanity-blog-publish` 和 `skills/sanity-blog-update` 复制到 `.claude/skills/`。
 
 ### Cursor
 
-项目配置在各平台均放在 `<project>/.cursor/mcp.json`。全局配置位置：
+项目配置为 `<project>/.cursor/mcp.json`；全局配置为 Windows `%USERPROFILE%\.cursor\mcp.json` 或 macOS/Linux `~/.cursor/mcp.json`。合并 Claude Desktop 示例中的 `mcpServers.sanityblog`，在 Cursor MCP 设置中启用，并保留写操作人工确认。
 
-- Windows：`%USERPROFILE%\.cursor\mcp.json`
-- macOS/Linux：`~/.cursor/mcp.json`
+### VS Code / GitHub Copilot Agent Plugins
 
-配置内容：
-
-```json
-{
-  "mcpServers": {
-    "sanityblog": {
-      "command": "node",
-      "args": [
-        "C:\\work\\plugins\\sanityblog\\src\\server.mjs"
-      ]
-    }
-  }
-}
-```
-
-在 Cursor 的 MCP 设置中启用 Server，并保持写工具需要人工确认。
-
-### VS Code / GitHub Copilot
-
-项目配置放在 `.vscode/mcp.json`。注意 VS Code 使用顶层 `servers`，不是 `mcpServers`：
+项目配置放在 `.vscode/mcp.json`。VS Code 使用顶层 `servers`：
 
 ```json
 {
   "servers": {
     "sanityblog": {
       "type": "stdio",
-      "command": "node",
+      "command": "C:\\Users\\YOUR_NAME\\plugins\\sanityblog\\runtime\\node.exe",
       "args": [
-        "C:\\work\\plugins\\sanityblog\\src\\server.mjs"
+        "C:\\Users\\YOUR_NAME\\plugins\\sanityblog\\src\\server.mjs"
       ]
     }
   }
 }
 ```
 
-也可以通过命令面板打开用户级 MCP 配置。这里指本机 VS Code/Copilot Agent；运行在云端的代理无法直接启动用户电脑上的 stdio Server。
-
-VS Code 的 Agent Plugins 功能可读取 Claude 格式插件，但该功能在部分版本中仍为 Preview。稳定接入方式仍是 `.vscode/mcp.json`。
+VS Code/Copilot Agent Plugins 也可读取仓库内 Claude 格式 manifest；`.vscode/mcp.json` 是最直接的 MCP 接入方式。云端代理无法启动用户电脑上的本地 stdio Server。
 
 ### Windsurf
 
-全局配置位置：
-
-- Windows：`%USERPROFILE%\.codeium\windsurf\mcp_config.json`
-- macOS/Linux：`~/.codeium/windsurf/mcp_config.json`
-
-加入：
-
-```json
-{
-  "mcpServers": {
-    "sanityblog": {
-      "command": "node",
-      "args": [
-        "C:\\work\\plugins\\sanityblog\\src\\server.mjs"
-      ]
-    }
-  }
-}
-```
-
-在 Cascade 的 MCP 设置中启用 Server 和所需工具。Windsurf 对可启用工具数量有上限时，只启用本插件实际使用的工具。
+全局配置位置为 Windows `%USERPROFILE%\.codeium\windsurf\mcp_config.json` 或 macOS/Linux `~/.codeium/windsurf/mcp_config.json`。合并 Claude Desktop 示例中的 `mcpServers.sanityblog`，然后在 Cascade 的 MCP 设置中启用所需工具。
 
 ### Cline
 
-Cline CLI 的用户级配置通常位于：
-
-- Windows：`%USERPROFILE%\.cline\mcp.json`
-- macOS/Linux：`~/.cline/mcp.json`
-
-IDE 扩展的具体内部存储位置可能随版本变化，因此优先在 Cline 面板中打开 **MCP Servers → Configure**，然后合并：
+用户级配置通常为 Windows `%USERPROFILE%\.cline\mcp.json` 或 macOS/Linux `~/.cline/mcp.json`。在 **MCP Servers → Configure** 中合并：
 
 ```json
 {
   "mcpServers": {
     "sanityblog": {
-      "command": "node",
+      "command": "C:\\Users\\YOUR_NAME\\plugins\\sanityblog\\runtime\\node.exe",
       "args": [
-        "C:\\work\\plugins\\sanityblog\\src\\server.mjs"
+        "C:\\Users\\YOUR_NAME\\plugins\\sanityblog\\src\\server.mjs"
       ],
       "disabled": false,
       "autoApprove": []
@@ -327,7 +252,21 @@ IDE 扩展的具体内部存储位置可能随版本变化，因此优先在 Cli
 }
 ```
 
-保留空的 `autoApprove`，让发布和更新始终经过人工审批。
+保持 `autoApprove` 为空，让发布和更新始终经过人工审批。
+
+### macOS/Linux 源码安装与开发
+
+需要在非 Windows 平台直接从源码运行时，安装 Node.js 22.12 或更高版本：
+
+```bash
+git clone https://github.com/1nv0ker/dashboard.git sanityblog
+cd sanityblog
+npm install
+node src/cli.mjs --init
+node src/cli.mjs --check
+```
+
+生产依赖也可用 `npm ci --omit=dev --ignore-scripts` 严格按 lockfile 安装。客户端 MCP JSON 中仍须使用 `command` 与独立绝对 `args`，不得保存 token。
 
 ## 技能安装
 
@@ -453,26 +392,33 @@ status, id, revision, slug, requestId, uploadedAssetIds, target, operation
 
 ### 客户端看不到工具
 
-1. 运行 `node C:\work\plugins\sanityblog\src\cli.mjs --check`。
-2. 确认客户端配置使用 `command: node` 和独立的绝对 `args`。
-3. 在同一运行环境中确认 `node --version`。
-4. 完全重启客户端，并查看它的 MCP 日志。
-5. 确认没有把 `.mcp.json` 的顶层格式混用：VS Code 是 `servers`，多数其他客户端是 `mcpServers`，Codex 插件文件是直接 server map。
+1. 使用便携运行时执行配置检查：
+
+   ```powershell
+   $plugin = Join-Path $HOME 'plugins\sanityblog'
+   & "$plugin\runtime\node.exe" "$plugin\src\cli.mjs" --check
+   ```
+
+2. 确认 MCP 的 `command` 和 `args` 都是实际绝对路径，且没有 token。
+3. 运行 `& "$plugin\runtime\node.exe" --version`，应看到 `v22.23.1`。
+4. 完全重启客户端并创建新任务，查看 MCP stderr 日志。
+5. 检查顶层格式：VS Code 使用 `servers`，多数其他客户端使用 `mcpServers`，Codex 插件的 `.codex-mcp.json` 直接使用 server map。
 
 ### Server 启动后立即退出
 
-检查 Node 版本、依赖安装、服务端绝对路径以及配置文件权限。不要在 stdio 命令外包一层会输出 banner 或改写 stdout 的脚本。
+重新运行一键安装命令以修复便携运行时、锁定依赖和 MCP 路径，再执行 `--check`。不要在 stdio 命令外包一层会输出 banner 或改写 stdout 的脚本。
 
 ### 配置或 token 失效
 
-重新运行：
+重新初始化并检查：
 
 ```powershell
-node C:\work\plugins\sanityblog\src\cli.mjs --init
-node C:\work\plugins\sanityblog\src\cli.mjs --check
+$plugin = Join-Path $HOME 'plugins\sanityblog'
+& "$plugin\runtime\node.exe" "$plugin\src\cli.mjs" --init
+& "$plugin\runtime\node.exe" "$plugin\src\cli.mjs" --check
 ```
 
-不要把配置文件内容粘贴给 AI。只提供脱敏后的错误 code 和安全 receipt 字段。
+初始化仍只询问 Sanity project ID、dataset 和隐藏 token。不要把配置文件内容粘贴给 AI；只提供脱敏后的错误 code 和安全 receipt 字段。
 
 ### 发布或更新结果不确定
 
@@ -480,44 +426,33 @@ node C:\work\plugins\sanityblog\src\cli.mjs --check
 
 ## 开发检查
 
-配置检查（两条命令等价，任选其一）：
+以下命令仅供仓库开发者使用；一键安装用户不需要安装系统 Node.js 或运行测试。开发环境要求 Node.js 22.12+：
 
 ```powershell
-Set-Location C:\work\plugins\sanityblog
+git clone https://github.com/1nv0ker/dashboard.git sanityblog
+Set-Location sanityblog
+npm install
 npm run check
-node C:\work\plugins\sanityblog\src\cli.mjs --check
-```
-
-运行 Node 测试：
-
-```powershell
-Set-Location C:\work\plugins\sanityblog
 npm test
 ```
 
-`npm test` 只运行 `node --test --test-concurrency=1`，不替代以下 manifest/skill validators。若本机安装了 Codex 系统技能，运行：
+`npm test` 运行 Node 测试，包括配置、MCP、远端 mock、工作区、发布记录和安装器测试。它不替代 manifest/skill validators。若本机安装了 Codex 系统技能，在仓库根目录运行：
 
 ```powershell
+$repo = (Get-Location).Path
 $codexHome = if ($env:CODEX_HOME) { $env:CODEX_HOME } else { "$HOME\.codex" }
-python "$codexHome\skills\.system\skill-creator\scripts\quick_validate.py" C:\work\plugins\sanityblog\skills\sanity-blog-publish
-python "$codexHome\skills\.system\skill-creator\scripts\quick_validate.py" C:\work\plugins\sanityblog\skills\sanity-blog-update
-python "$codexHome\skills\.system\plugin-creator\scripts\validate_plugin.py" C:\work\plugins\sanityblog
+python "$codexHome\skills\.system\skill-creator\scripts\quick_validate.py" "$repo\skills\sanity-blog-publish"
+python "$codexHome\skills\.system\skill-creator\scripts\quick_validate.py" "$repo\skills\sanity-blog-update"
+python "$codexHome\skills\.system\plugin-creator\scripts\validate_plugin.py" $repo
 ```
 
-如果已安装 Claude Code，再运行：
+如已安装 Claude Code，再运行：
 
 ```powershell
-claude plugin validate C:\work\plugins\sanityblog --strict
+claude plugin validate (Get-Location).Path --strict
 ```
 
-最后分别人工验证：
-
-- Codex 能载入 `.codex-plugin/plugin.json` 与 `.codex-mcp.json`
-- Claude Code 能载入 `.claude-plugin/plugin.json` 与保留字面量 `${CLAUDE_PLUGIN_ROOT}` 的 `.mcp.json`
-- 客户端能列出全部 `sanity_blog_*` 工具
-- 写工具保持人工审批
-- 发布与更新技能不会被隐式调用
-
+最后人工确认：Codex/Claude 能加载对应 manifest、客户端能列出全部 `sanity_blog_*` 工具、写工具保持人工审批、两个技能不会被隐式调用。
 ## 兼容规范
 
 - [MCP stdio transport](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports)
