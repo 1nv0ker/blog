@@ -18,12 +18,13 @@ test('package and dual plugin manifests expose pinned compatible metadata', asyn
   const packageJson = await json('package.json')
   const codex = await json('.codex-plugin/plugin.json')
   const claude = await json('.claude-plugin/plugin.json')
-  const codexMcp = await json('.codex-mcp.json')
   const claudeMcp = await json('.mcp.json')
+  const marketplace = await json('.agents/plugins/marketplace.json')
 
   assert.equal(packageJson.engines.node, '>=22.12')
   assert.equal(packageJson.dependencies['@modelcontextprotocol/sdk'], '1.29.0')
   assert.equal(packageJson.dependencies.zod, '3.25.76')
+  assert.equal(packageJson.devDependencies.esbuild, '0.25.12')
   assert.match(codex.version, /^0\.1\.0\+codex\.[0-9A-Za-z.-]+$/u)
   assert.equal(claude.version, '0.1.0')
   for (const manifest of [codex, claude]) {
@@ -32,17 +33,26 @@ test('package and dual plugin manifests expose pinned compatible metadata', asyn
     assert.equal(manifest.skills, './skills/')
   }
   assert.equal(codex.interface.category, 'Productivity')
-  assert.equal(codex.mcpServers, './.codex-mcp.json')
   assert.equal(claude.mcpServers, './.mcp.json')
-  assert.deepEqual(codexMcp.sanityblog, {
+  assert.deepEqual(codex.mcpServers.sanityblog, {
     command: 'node',
-    args: ['C:\\work\\plugins\\sanityblog\\src\\server.mjs'],
+    args: ['./dist/server.mjs'],
+    cwd: '.',
   })
   assert.equal(claudeMcp.mcpServers.sanityblog.command, 'node')
   assert.deepEqual(claudeMcp.mcpServers.sanityblog.args, [
-    '${CLAUDE_PLUGIN_ROOT}/src/server.mjs',
+    '${CLAUDE_PLUGIN_ROOT}/dist/server.mjs',
   ])
-  assert.doesNotMatch(JSON.stringify({codexMcp, claudeMcp}), /token|secret|authorization/iu)
+  assert.equal(marketplace.name, 'sanityblog')
+  const marketplacePlugin = marketplace.plugins.find((entry) => entry.name === 'sanityblog')
+  assert.deepEqual(marketplacePlugin.source, {
+    source: 'url',
+    url: 'https://github.com/1nv0ker/dashboard.git',
+    ref: 'main',
+  })
+  assert.equal(marketplacePlugin.policy.installation, 'AVAILABLE')
+  assert.equal(marketplacePlugin.policy.authentication, 'ON_INSTALL')
+  assert.doesNotMatch(JSON.stringify({codex, claudeMcp}), /token|secret|authorization/iu)
 })
 
 test('publish skill enforces research, bilingual Portable Text, cover, confirmation, and safe fallback', async () => {
@@ -130,6 +140,10 @@ test('one-click installer and minimal configuration are packaged', async () => {
 test('README documents one-click installation, broad MCP compatibility, and records', async () => {
   const readme = await text('README.md')
   for (const phrase of [
+    'codex plugin marketplace add https://github.com/1nv0ker/dashboard --ref main',
+    'codex plugin add sanityblog@sanityblog',
+    '不支持把 Git URL 直接作为 `plugin add` 的参数',
+    'dist/server.mjs',
     '不需要预先安装 Git、Node.js 或 npm',
     'raw.githubusercontent.com/1nv0ker/dashboard/main/install.ps1',
     'Node.js 22.23.1',

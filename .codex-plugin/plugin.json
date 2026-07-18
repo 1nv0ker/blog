@@ -1,6 +1,6 @@
 {
   "name": "sanityblog",
-  "version": "0.1.0+codex.20260718141313",
+  "version": "0.1.0+codex.20260718150921",
   "description": "Safely validate, publish, and update blog content through a local stdio MCP server.",
   "author": {
     "name": "Local developer"
@@ -12,7 +12,15 @@
     "mcp"
   ],
   "skills": "./skills/",
-  "mcpServers": "./.codex-mcp.json",
+  "mcpServers": {
+    "sanityblog": {
+      "command": "node",
+      "args": [
+        "./dist/server.mjs"
+      ],
+      "cwd": "."
+    }
+  },
   "interface": {
     "displayName": "Sanity Blog",
     "shortDescription": "Publish and update blog content with explicit safety checks",
@@ -23,6 +31,8 @@
       "Read",
       "Write"
     ],
-    "defaultPrompt": "Use the bundled Sanity Blog Publish or Sanity Blog Update skill to prepare, review, and safely apply the requested blog operation."
+    "defaultPrompt": [
+      "Use Sanity Blog Publish or Sanity Blog Update to safely apply this blog operation."
+    ]
   }
 }

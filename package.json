@@ -8,12 +8,17 @@
     "node": ">=22.12"
   },
   "scripts": {
+    "build": "node scripts/build.mjs",
     "start": "node src/server.mjs",
     "check": "node src/cli.mjs --check",
+    "pretest": "npm run build",
     "test": "node --test --test-concurrency=1"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.29.0",
     "zod": "3.25.76"
+  },
+  "devDependencies": {
+    "esbuild": "0.25.12"
   }
 }

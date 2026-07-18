@@ -208,6 +208,7 @@ function Assert-SourceTree {
         "package-lock.json",
         "src\server.mjs",
         "src\cli.mjs",
+        "dist\server.mjs",
         "scripts\configure-install.mjs"
     )) {
         if (-not (Test-Path -LiteralPath (Join-Path $Path $requiredPath) -PathType Leaf)) {

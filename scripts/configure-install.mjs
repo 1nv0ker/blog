@@ -129,13 +129,33 @@ function stringifyJson(value) {
   return `${JSON.stringify(value, null, 2)}\n`;
 }
 
+async function writeCodexManifestMcp({ pluginRoot, mcpServers }) {
+  const manifestPath = path.join(
+    path.resolve(pluginRoot),
+    ".codex-plugin",
+    "plugin.json",
+  );
+  let manifest;
+  try {
+    manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+  } catch (error) {
+    throw new Error(`Codex plugin manifest is invalid: ${error.message}`);
+  }
+  if (!isPlainObject(manifest) || manifest.name !== PLUGIN_NAME) {
+    throw new Error("Codex plugin manifest does not belong to sanityblog.");
+  }
+  manifest.mcpServers = mcpServers;
+  await writeUtf8Atomic(manifestPath, stringifyJson(manifest));
+  return manifestPath;
+}
+
 export async function writeMcpConfigurations({ pluginRoot, installRoot }) {
   const absolutePluginRoot = path.resolve(pluginRoot);
   const absoluteInstallRoot = path.resolve(installRoot);
-  const codexConfiguration = {
+  const codexServers = {
     [PLUGIN_NAME]: {
       command: path.join(absoluteInstallRoot, "runtime", "node.exe"),
-      args: [path.join(absoluteInstallRoot, "src", "server.mjs")],
+      args: [path.join(absoluteInstallRoot, "dist", "server.mjs")],
     },
   };
   const portableRoot = "${CLAUDE_PLUGIN_ROOT}";
@@ -143,22 +163,22 @@ export async function writeMcpConfigurations({ pluginRoot, installRoot }) {
     mcpServers: {
       [PLUGIN_NAME]: {
         command: `${portableRoot}/runtime/node.exe`,
-        args: [`${portableRoot}/src/server.mjs`],
+        args: [`${portableRoot}/dist/server.mjs`],
       },
     },
   };
 
-  await writeUtf8Atomic(
-    path.join(absolutePluginRoot, ".codex-mcp.json"),
-    stringifyJson(codexConfiguration),
-  );
+  const codexManifestPath = await writeCodexManifestMcp({
+    pluginRoot: absolutePluginRoot,
+    mcpServers: codexServers,
+  });
   await writeUtf8Atomic(
     path.join(absolutePluginRoot, ".mcp.json"),
     stringifyJson(compatibleConfiguration),
   );
 
   return {
-    codexMcpPath: path.join(absolutePluginRoot, ".codex-mcp.json"),
+    codexManifestPath,
     compatibleMcpPath: path.join(absolutePluginRoot, ".mcp.json"),
   };
 }

@@ -1,0 +1,21 @@
+{
+  "name": "sanityblog",
+  "interface": {
+    "displayName": "Sanity Blog"
+  },
+  "plugins": [
+    {
+      "name": "sanityblog",
+      "source": {
+        "source": "url",
+        "url": "https://github.com/1nv0ker/dashboard.git",
+        "ref": "main"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}

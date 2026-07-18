@@ -130,7 +130,7 @@ test('MCP tool errors are sanitized, dual-format, and marked isError', async (t)
 test('stdio stdout contains JSON-RPC only', async () => {
   const testDirectory = path.dirname(fileURLToPath(import.meta.url))
   const pluginRoot = path.resolve(testDirectory, '..')
-  const child = spawn(process.execPath, ['src/server.mjs'], {
+  const child = spawn(process.execPath, ['dist/server.mjs'], {
     cwd: pluginRoot,
     stdio: ['pipe', 'pipe', 'pipe'],
     windowsHide: true,

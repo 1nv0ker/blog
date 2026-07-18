@@ -1,8 +1,0 @@
-{
-  "sanityblog": {
-    "command": "node",
-    "args": [
-      "C:\\work\\plugins\\sanityblog\\src\\server.mjs"
-    ]
-  }
-}

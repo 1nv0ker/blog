@@ -29,17 +29,27 @@ test("generated MCP configurations always use the portable runtime", async (t) =
   const home = await temporaryHome(t);
   const pluginRoot = path.join(home, "stage");
   const installRoot = path.join(home, "plugins", "sanityblog");
-  await mkdir(pluginRoot, { recursive: true });
+  const manifestDirectory = path.join(pluginRoot, ".codex-plugin");
+  await mkdir(manifestDirectory, { recursive: true });
+  await writeFile(
+    path.join(manifestDirectory, "plugin.json"),
+    JSON.stringify({
+      name: "sanityblog",
+      version: "0.1.0",
+      mcpServers: "./legacy.mcp.json",
+    }),
+    "utf8",
+  );
 
   await writeMcpConfigurations({ pluginRoot, installRoot });
 
-  const codex = JSON.parse(
-    await readFile(path.join(pluginRoot, ".codex-mcp.json"), "utf8"),
+  const manifest = JSON.parse(
+    await readFile(path.join(manifestDirectory, "plugin.json"), "utf8"),
   );
-  assert.deepEqual(codex, {
+  assert.deepEqual(manifest.mcpServers, {
     sanityblog: {
       command: path.join(installRoot, "runtime", "node.exe"),
-      args: [path.join(installRoot, "src", "server.mjs")],
+      args: [path.join(installRoot, "dist", "server.mjs")],
     },
   });
 
@@ -50,7 +60,7 @@ test("generated MCP configurations always use the portable runtime", async (t) =
     mcpServers: {
       sanityblog: {
         command: "${CLAUDE_PLUGIN_ROOT}/runtime/node.exe",
-        args: ["${CLAUDE_PLUGIN_ROOT}/src/server.mjs"],
+        args: ["${CLAUDE_PLUGIN_ROOT}/dist/server.mjs"],
       },
     },
   });

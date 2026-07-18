@@ -4,6 +4,27 @@
 
 源码仓库：[1nv0ker/dashboard](https://github.com/1nv0ker/dashboard)
 
+## Codex 从 GitHub 安装
+
+当前 Codex CLI 不支持把 Git URL 直接作为 `plugin add` 的参数，因此下面这条精确命令会在下载仓库之前被 CLI 拒绝：
+
+```powershell
+codex plugin add https://github.com/1nv0ker/dashboard
+```
+
+仓库已经按 Codex Git marketplace 结构提供 `.agents/plugins/marketplace.json`。当前官方支持的确定安装流程是：
+
+```powershell
+codex plugin marketplace add https://github.com/1nv0ker/dashboard --ref main
+codex plugin add sanityblog@sanityblog
+```
+
+第一条命令登记并获取名为 `sanityblog` 的 marketplace，第二条从该 marketplace 安装插件。仓库内容无法把这两步改写成不受 CLI 支持的 `codex plugin add <URL>` 语法。安装或更新后请完全重启 Codex，并创建新任务。
+
+Git marketplace 安装不会运行仓库里的 `install.ps1`、`npm install` 或其他第三方初始化脚本。插件已包含预构建的 `dist/server.mjs`，所以不需要在插件缓存中安装 npm 依赖；启动配置使用 `node` 和相对插件根目录的 `cwd`。如果当前 Codex 运行环境不能执行 `node`，或本机还没有 `~/.sanity-blog/config.json`，请使用下方 Windows 一键安装器：它会安装私有便携 Node，并只询问发布 API origin、Sanity project ID、dataset 与隐藏 token。
+
+已有 `~/.sanity-blog/config.json` 会被 Git 安装版本直接复用。marketplace 安装本身不会读取、上传或改写其中的 token。
+
 支持的主要客户端：
 
 - Codex / ChatGPT 桌面版 Codex、Codex CLI、Codex IDE 扩展
@@ -20,7 +41,8 @@ MCP tools 是广泛兼容层：只要客户端支持本地 stdio MCP，就可以
 
 插件包含：
 
-- 本机 MCP Server：`src/server.mjs`
+- 本机 MCP Server 源码：`src/server.mjs`
+- Git 分发用预构建 Server：`dist/server.mjs`
 - 配置 CLI：`src/cli.mjs`
 - 发布技能：`skills/sanity-blog-publish/`
 - 更新技能：`skills/sanity-blog-update/`
@@ -142,7 +164,7 @@ codex plugin add sanityblog@personal --json
 {
   "command": "C:\\Users\\YOUR_NAME\\plugins\\sanityblog\\runtime\\node.exe",
   "args": [
-    "C:\\Users\\YOUR_NAME\\plugins\\sanityblog\\src\\server.mjs"
+    "C:\\Users\\YOUR_NAME\\plugins\\sanityblog\\dist\\server.mjs"
   ]
 }
 ```
@@ -155,7 +177,7 @@ codex plugin add sanityblog@personal --json
 {
   "command": "/absolute/path/to/portable-node/bin/node",
   "args": [
-    "/absolute/path/to/sanityblog/src/server.mjs"
+    "/absolute/path/to/sanityblog/dist/server.mjs"
   ]
 }
 ```
@@ -166,12 +188,12 @@ codex plugin add sanityblog@personal --json
 
 ### Codex
 
-`.codex-plugin/plugin.json` 会加载 `skills/` 和安装时生成的 `.codex-mcp.json`。通常无需手工编辑 `%USERPROFILE%\.codex\config.toml`。如不用插件系统，可手工配置：
+`.codex-plugin/plugin.json` 会加载 `skills/`，并内联声明 Codex MCP Server。Git marketplace 版本使用 `node`、`./dist/server.mjs` 和相对插件根目录的 `cwd`；Windows 一键安装器会在 staging 中把同一配置改写为便携 Node 的绝对路径。通常无需手工编辑 `%USERPROFILE%\.codex\config.toml`。如不用插件系统，可手工配置：
 
 ```toml
 [mcp_servers.sanityblog]
 command = "C:\\Users\\YOUR_NAME\\plugins\\sanityblog\\runtime\\node.exe"
-args = ["C:\\Users\\YOUR_NAME\\plugins\\sanityblog\\src\\server.mjs"]
+args = ["C:\\Users\\YOUR_NAME\\plugins\\sanityblog\\dist\\server.mjs"]
 startup_timeout_sec = 15
 ```
 
@@ -191,7 +213,7 @@ startup_timeout_sec = 15
     "sanityblog": {
       "command": "C:\\Users\\YOUR_NAME\\plugins\\sanityblog\\runtime\\node.exe",
       "args": [
-        "C:\\Users\\YOUR_NAME\\plugins\\sanityblog\\src\\server.mjs"
+        "C:\\Users\\YOUR_NAME\\plugins\\sanityblog\\dist\\server.mjs"
       ]
     }
   }
@@ -208,7 +230,7 @@ startup_timeout_sec = 15
 claude --plugin-dir "$HOME\plugins\sanityblog"
 ```
 
-安装器生成的 `.mcp.json` 使用 `${CLAUDE_PLUGIN_ROOT}/runtime/node.exe` 和 `${CLAUDE_PLUGIN_ROOT}/src/server.mjs`，因此技能与 MCP Server 会一起加载。也可把 `skills/sanity-blog-publish` 和 `skills/sanity-blog-update` 复制到 `.claude/skills/`。
+安装器生成的 `.mcp.json` 使用 `${CLAUDE_PLUGIN_ROOT}/runtime/node.exe` 和 `${CLAUDE_PLUGIN_ROOT}/dist/server.mjs`，因此技能与 MCP Server 会一起加载。也可把 `skills/sanity-blog-publish` 和 `skills/sanity-blog-update` 复制到 `.claude/skills/`。
 
 ### Cursor
 
@@ -225,7 +247,7 @@ claude --plugin-dir "$HOME\plugins\sanityblog"
       "type": "stdio",
       "command": "C:\\Users\\YOUR_NAME\\plugins\\sanityblog\\runtime\\node.exe",
       "args": [
-        "C:\\Users\\YOUR_NAME\\plugins\\sanityblog\\src\\server.mjs"
+        "C:\\Users\\YOUR_NAME\\plugins\\sanityblog\\dist\\server.mjs"
       ]
     }
   }
@@ -248,7 +270,7 @@ VS Code/Copilot Agent Plugins 也可读取仓库内 Claude 格式 manifest；`.v
     "sanityblog": {
       "command": "C:\\Users\\YOUR_NAME\\plugins\\sanityblog\\runtime\\node.exe",
       "args": [
-        "C:\\Users\\YOUR_NAME\\plugins\\sanityblog\\src\\server.mjs"
+        "C:\\Users\\YOUR_NAME\\plugins\\sanityblog\\dist\\server.mjs"
       ],
       "disabled": false,
       "autoApprove": []
@@ -407,7 +429,7 @@ status, id, revision, slug, requestId, uploadedAssetIds, target, operation
 2. 确认 MCP 的 `command` 和 `args` 都是实际绝对路径，且没有 token。
 3. 运行 `& "$plugin\runtime\node.exe" --version`，应看到 `v22.23.1`。
 4. 完全重启客户端并创建新任务，查看 MCP stderr 日志。
-5. 检查顶层格式：VS Code 使用 `servers`，多数其他客户端使用 `mcpServers`，Codex 插件的 `.codex-mcp.json` 直接使用 server map。
+5. 检查顶层格式：VS Code 使用 `servers`，Codex、Claude Desktop 和多数其他客户端使用 `mcpServers`。
 
 ### Server 启动后立即退出
 
@@ -441,7 +463,7 @@ npm run check
 npm test
 ```
 
-`npm test` 运行 Node 测试，包括配置、MCP、远端 mock、工作区、发布记录和安装器测试。它不替代 manifest/skill validators。若本机安装了 Codex 系统技能，在仓库根目录运行：
+`npm test` 会先重新生成 `dist/server.mjs`，再运行 Node 测试，包括配置、预构建 MCP、远端 mock、工作区、发布记录和安装器测试。它不替代 manifest/skill validators。若本机安装了 Codex 系统技能，在仓库根目录运行：
 
 ```powershell
 $repo = (Get-Location).Path
