@@ -1,0 +1,6 @@
+interface:
+  display_name: "Sanity Blog Update"
+  short_description: "Review and safely update an existing blog post"
+  default_prompt: "Use $sanity-blog-update to prepare, review, and safely update an existing blog post."
+policy:
+  allow_implicit_invocation: false

@@ -1,0 +1,28 @@
+{
+  "name": "sanityblog",
+  "version": "0.1.0",
+  "description": "Safely validate, publish, and update blog content through a local stdio MCP server.",
+  "author": {
+    "name": "Local developer"
+  },
+  "keywords": [
+    "blog",
+    "publishing",
+    "content",
+    "mcp"
+  ],
+  "skills": "./skills/",
+  "mcpServers": "./.codex-mcp.json",
+  "interface": {
+    "displayName": "Sanity Blog",
+    "shortDescription": "Publish and update blog content with explicit safety checks",
+    "longDescription": "Two explicit workflows for validating, publishing, and updating blog content through a local MCP server, with durable receipts and partial-success handling.",
+    "category": "Productivity",
+    "developerName": "Local developer",
+    "capabilities": [
+      "Read",
+      "Write"
+    ],
+    "defaultPrompt": "Use the bundled Sanity Blog Publish or Sanity Blog Update skill to prepare, review, and safely apply the requested blog operation."
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "name": "sanityblog",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local stdio MCP server and explicit Agent Skills for safe Sanity blog publishing.",
+  "type": "module",
+  "engines": {
+    "node": ">=22.12"
+  },
+  "scripts": {
+    "start": "node src/server.mjs",
+    "check": "node src/cli.mjs --check",
+    "test": "node --test --test-concurrency=1"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.29.0",
+    "zod": "3.25.76"
+  }
+}
