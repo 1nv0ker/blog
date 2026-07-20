@@ -12,6 +12,7 @@ Publish one fully researched, bilingual article through the bundled local MCP se
 Use only the exact schemas exposed by the `sanityblog` MCP server:
 
 - `sanity_blog_check_config({})`
+- `sanity_blog_start_config_setup({})`
 - `sanity_blog_prepare_publish({baseSlug})`
 - `sanity_blog_validate({articlePath})`
 - `sanity_blog_probe_publish({articlePath})`
@@ -109,7 +110,7 @@ If no image-generation capability is available, pause before validation and ask 
 ## Strict workflow
 
 1. Confirm that the user explicitly wants to publish. Collect the intended base slug, audience, purpose, bilingual scope, target profile, and cover requirements. Resolve ambiguity before preparing an attempt.
-2. Call `sanity_blog_check_config({})`. Stop on missing or invalid configuration. Capture the safe `publisherApiOrigin` and Sanity target for later confirmation; never inspect the token. Direct the user to the documented `--init` or `--check` command when configuration is invalid.
+2. Call `sanity_blog_check_config({})`. If it returns `CONFIG_NOT_FOUND`, `INVALID_CONFIG`, or `LEGACY_CONFIG_REQUIRES_REINIT`, call `sanity_blog_start_config_setup({})` once. On Windows it opens a separate interactive PowerShell; on other platforms present the returned manual command. Tell the user that setup asks for four fields, that the token is entered only in the terminal, and stop this attempt until the user completes setup. For every other configuration error, stop without launching setup. After a successful check, capture the safe `publisherApiOrigin` and Sanity target for later confirmation; never inspect the token.
 3. Research the topic under the source-trust rules. Build the claim/source map before writing.
 4. Call `sanity_blog_prepare_publish({baseSlug})` once. Capture every returned staging path and attempt identifier. Stop if `articlePath`, `markdownPath`, `coverPath`, slug, or `reservationId` is missing.
 5. Write the complete English and Chinese Markdown at the returned `markdownPath` and explicitly generate the corresponding strict JSON at the returned `articlePath`. Convert both bodies to valid Portable Text arrays, populate localized title/excerpt/SEO fields, and end the English and Chinese bodies with linked `## Sources` and `## 来源` sections.

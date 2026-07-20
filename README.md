@@ -21,7 +21,7 @@ codex plugin add sanityblog@sanityblog
 
 第一条命令登记并获取名为 `sanityblog` 的 marketplace，第二条从该 marketplace 安装插件。仓库内容无法把这两步改写成不受 CLI 支持的 `codex plugin add <URL>` 语法。安装或更新后请完全重启 Codex，并创建新任务。
 
-Git marketplace 安装不会运行仓库里的 `install.ps1`、`npm install` 或其他第三方初始化脚本。插件已包含预构建的 `dist/server.mjs`，所以不需要在插件缓存中安装 npm 依赖；启动配置使用 `node` 和相对插件根目录的 `cwd`。如果当前 Codex 运行环境不能执行 `node`，或本机还没有 `~/.sanity-blog/config.json`，请使用下方 Windows 一键安装器：它会安装私有便携 Node，并只询问发布 API origin、Sanity project ID、dataset 与隐藏 token。
+Git marketplace 安装不会运行仓库里的 `install.ps1`、`npm install` 或其他第三方初始化脚本。插件已包含预构建的 `dist/server.mjs` 与 `dist/cli.mjs`，所以不需要在插件缓存中安装 npm 依赖；启动配置使用 `node` 和相对插件根目录的 `cwd`。发布或更新技能发现配置缺失、JSON 无效或旧配置需要重建时，会调用本地配置工具：Windows 会打开独立 PowerShell，其他平台会返回可在交互终端执行的命令。如果当前 Codex 运行环境不能执行 `node`，请使用下方 Windows 一键安装器。
 
 已有 `~/.sanity-blog/config.json` 会被 Git 安装版本直接复用。marketplace 安装本身不会读取、上传或改写其中的 token。
 
@@ -43,7 +43,8 @@ MCP tools 是广泛兼容层：只要客户端支持本地 stdio MCP，就可以
 
 - 本机 MCP Server 源码：`src/server.mjs`
 - Git 分发用预构建 Server：`dist/server.mjs`
-- 配置 CLI：`src/cli.mjs`
+- 配置 CLI 源码：`src/cli.mjs`
+- Git 分发用预构建配置 CLI：`dist/cli.mjs`
 - 发布技能：`skills/sanity-blog-publish/`
 - 更新技能：`skills/sanity-blog-update/`
 - Codex 插件清单：`.codex-plugin/plugin.json`
@@ -126,17 +127,21 @@ token 不作为安装器参数、MCP 参数或命令行参数传递；安装器�
 
 ```powershell
 $plugin = Join-Path $HOME 'plugins\sanityblog'
-& "$plugin\runtime\node.exe" "$plugin\src\cli.mjs" --check
+& "$plugin\runtime\node.exe" "$plugin\dist\cli.mjs" --check
 ```
 
 需要更换发布接口 origin、Sanity 项目或 token 时重新初始化：
 
 ```powershell
 $plugin = Join-Path $HOME 'plugins\sanityblog'
-& "$plugin\runtime\node.exe" "$plugin\src\cli.mjs" --init
+& "$plugin\runtime\node.exe" "$plugin\dist\cli.mjs" --init
 ```
 
 配置和 token 不能作为任何 `sanity_blog_*` 工具参数，也不要放入 MCP 客户端 JSON。
+
+新版配置文件固定持久化 **4 项**：`publisherApiOrigin`、`projectId`、`dataset`、`sanityToken`。其中 origin 默认 `https://publish.miyaip.com`，dataset 默认 `production`；没有环境变量时必须输入的是 project ID 与隐藏 token。`apiVersion` 固定为 `2026-07-05`，`workspaceRoot` 自动生成，不需要用户填写。
+
+MCP 的 stdin/stdout 专用于 JSON-RPC，不能在 Server 进程内直接提问。因此 `sanity_blog_start_config_setup({})` 使用独立终端收集配置，token 不进入 MCP 参数、结果或日志。为避免覆盖可疑路径，它只处理 `CONFIG_NOT_FOUND`、`INVALID_CONFIG` 和 `LEGACY_CONFIG_REQUIRES_REINIT`；路径、权限、读取失败或超大文件错误仍会安全停止。
 
 ### Codex 默认安装
 
@@ -319,6 +324,7 @@ Codex 和 Claude Code 以插件方式安装时会自动发现根目录 `skills/`
 | 工具 | 作用 | 远端影响 |
 | --- | --- | --- |
 | `sanity_blog_check_config` | 检查本机配置是否可用 | 无 |
+| `sanity_blog_start_config_setup` | 配置可安全重建时打开独立终端；非 Windows 返回手工命令 | 仅本机 |
 | `sanity_blog_prepare_publish` | 为 base slug 建立发布 staging 与 reservation | 仅本机 |
 | `sanity_blog_prepare_update` | 为已有 slug 建立更新 staging 与 reservation | 仅本机 |
 | `sanity_blog_validate` | 校验指定 `articlePath` 的本地快照 | 无 |
@@ -333,6 +339,7 @@ Codex 和 Claude Code 以插件方式安装时会自动发现根目录 `skills/`
 
 ```text
 sanity_blog_check_config({})
+sanity_blog_start_config_setup({})
 sanity_blog_prepare_publish({baseSlug})
 sanity_blog_prepare_update({slug})
 sanity_blog_validate({articlePath})
@@ -423,7 +430,7 @@ status, id, revision, slug, requestId, uploadedAssetIds, target, operation
 
    ```powershell
    $plugin = Join-Path $HOME 'plugins\sanityblog'
-   & "$plugin\runtime\node.exe" "$plugin\src\cli.mjs" --check
+   & "$plugin\runtime\node.exe" "$plugin\dist\cli.mjs" --check
    ```
 
 2. 确认 MCP 的 `command` 和 `args` 都是实际绝对路径，且没有 token。
@@ -441,11 +448,11 @@ status, id, revision, slug, requestId, uploadedAssetIds, target, operation
 
 ```powershell
 $plugin = Join-Path $HOME 'plugins\sanityblog'
-& "$plugin\runtime\node.exe" "$plugin\src\cli.mjs" --init
-& "$plugin\runtime\node.exe" "$plugin\src\cli.mjs" --check
+& "$plugin\runtime\node.exe" "$plugin\dist\cli.mjs" --init
+& "$plugin\runtime\node.exe" "$plugin\dist\cli.mjs" --check
 ```
 
-初始化只询问发布 API origin、Sanity project ID、dataset 和隐藏 token。发布前核对 `--check` 返回的 origin；不要把完整配置文件粘贴给 AI，只提供脱敏后的错误 code 和安全 receipt 字段。
+初始化只询问发布 API origin、Sanity project ID、dataset 和隐藏 token，共 4 项。通过技能使用插件时，可在可恢复的配置错误后调用 `sanity_blog_start_config_setup({})` 打开独立终端；完成后重新执行 `sanity_blog_check_config({})`。发布前核对 `--check` 返回的 origin；不要把完整配置文件粘贴给 AI，只提供脱敏后的错误 code 和安全 receipt 字段。
 
 ### 发布或更新结果不确定
 
@@ -463,7 +470,7 @@ npm run check
 npm test
 ```
 
-`npm test` 会先重新生成 `dist/server.mjs`，再运行 Node 测试，包括配置、预构建 MCP、远端 mock、工作区、发布记录和安装器测试。它不替代 manifest/skill validators。若本机安装了 Codex 系统技能，在仓库根目录运行：
+`npm test` 会先重新生成 `dist/server.mjs` 与 `dist/cli.mjs`，再运行 Node 测试，包括配置、预构建 MCP、远端 mock、工作区、发布记录和安装器测试。它不替代 manifest/skill validators。若本机安装了 Codex 系统技能，在仓库根目录运行：
 
 ```powershell
 $repo = (Get-Location).Path

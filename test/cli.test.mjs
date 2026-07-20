@@ -7,6 +7,7 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 
 const cliPath = fileURLToPath(new URL("../src/cli.mjs", import.meta.url));
+const bundledCliPath = fileURLToPath(new URL("../dist/cli.mjs", import.meta.url));
 
 async function isolatedHome(t) {
   const homeDir = await mkdtemp(path.join(os.tmpdir(), "sanityblog-cli-"));
@@ -39,6 +40,33 @@ test("non-interactive init reports explicit missing Sanity input", async (t) => 
   const payload = JSON.parse(result.stderr);
   assert.equal(payload.ok, false);
   assert.equal(payload.error.category, "configuration");
+  assert.equal(payload.error.code, "CONFIG_INPUT_REQUIRED");
+});
+
+test("prebuilt CLI help uses the distributed entry point", () => {
+  const result = spawnSync(process.execPath, [bundledCliPath, "--help"], {
+    encoding: "utf8",
+  });
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stderr, "");
+  const payload = JSON.parse(result.stdout);
+  assert.deepEqual(payload.usage, [
+    "node dist/cli.mjs --init",
+    "node dist/cli.mjs --check",
+  ]);
+});
+
+test("prebuilt CLI preserves non-interactive input safety", async (t) => {
+  const homeDir = await isolatedHome(t);
+  const result = spawnSync(process.execPath, [bundledCliPath, "--init"], {
+    encoding: "utf8",
+    env: childEnvironment(homeDir),
+  });
+
+  assert.equal(result.status, 1);
+  assert.equal(result.stdout, "");
+  const payload = JSON.parse(result.stderr);
   assert.equal(payload.error.code, "CONFIG_INPUT_REQUIRED");
 });
 

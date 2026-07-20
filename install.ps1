@@ -208,6 +208,7 @@ function Assert-SourceTree {
         "package-lock.json",
         "src\server.mjs",
         "src\cli.mjs",
+        "dist\cli.mjs",
         "dist\server.mjs",
         "scripts\configure-install.mjs"
     )) {
@@ -496,7 +497,7 @@ try {
     }
 
     $installedNode = Join-Path $resolvedInstallRoot "runtime\node.exe"
-    $installedCli = Join-Path $resolvedInstallRoot "src\cli.mjs"
+    $installedCli = Join-Path $resolvedInstallRoot "dist\cli.mjs"
     if (Test-SanityBlogConfiguration -NodePath $installedNode -CliPath $installedCli) {
         Write-Host "Existing sanityblog configuration is valid."
     }

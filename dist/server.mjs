@@ -3225,8 +3225,8 @@ var require_utils = __commonJS({
       }
       return ind;
     }
-    function removeDotSegments(path6) {
-      let input = path6;
+    function removeDotSegments(path7) {
+      let input = path7;
       const output = [];
       let nextSlash = -1;
       let len = 0;
@@ -3478,8 +3478,8 @@ var require_schemes = __commonJS({
         wsComponent.secure = void 0;
       }
       if (wsComponent.resourceName) {
-        const [path6, query] = wsComponent.resourceName.split("?");
-        wsComponent.path = path6 && path6 !== "/" ? path6 : void 0;
+        const [path7, query] = wsComponent.resourceName.split("?");
+        wsComponent.path = path7 && path7 !== "/" ? path7 : void 0;
         wsComponent.query = query;
         wsComponent.resourceName = void 0;
       }
@@ -6886,8 +6886,8 @@ var require_dist = __commonJS({
 });
 
 // src/server.mjs
-import path5 from "node:path";
-import { fileURLToPath } from "node:url";
+import path6 from "node:path";
+import { fileURLToPath as fileURLToPath2 } from "node:url";
 
 // node_modules/zod/v3/external.js
 var external_exports = {};
@@ -7367,8 +7367,8 @@ function getErrorMap() {
 
 // node_modules/zod/v3/helpers/parseUtil.js
 var makeIssue = (params) => {
-  const { data, path: path6, errorMaps, issueData } = params;
-  const fullPath = [...path6, ...issueData.path || []];
+  const { data, path: path7, errorMaps, issueData } = params;
+  const fullPath = [...path7, ...issueData.path || []];
   const fullIssue = {
     ...issueData,
     path: fullPath
@@ -7484,11 +7484,11 @@ var errorUtil;
 
 // node_modules/zod/v3/types.js
 var ParseInputLazyPath = class {
-  constructor(parent, value, path6, key) {
+  constructor(parent, value, path7, key) {
     this._cachedPath = [];
     this.parent = parent;
     this.data = value;
-    this._path = path6;
+    this._path = path7;
     this._key = key;
   }
   get path() {
@@ -11126,10 +11126,10 @@ function assignProp(target, prop, value) {
     configurable: true
   });
 }
-function getElementAtPath(obj, path6) {
-  if (!path6)
+function getElementAtPath(obj, path7) {
+  if (!path7)
     return obj;
-  return path6.reduce((acc, key) => acc?.[key], obj);
+  return path7.reduce((acc, key) => acc?.[key], obj);
 }
 function promiseAllObject(promisesObj) {
   const keys = Object.keys(promisesObj);
@@ -11449,11 +11449,11 @@ function aborted(x, startIndex = 0) {
   }
   return false;
 }
-function prefixIssues(path6, issues) {
+function prefixIssues(path7, issues) {
   return issues.map((iss) => {
     var _a;
     (_a = iss).path ?? (_a.path = []);
-    iss.path.unshift(path6);
+    iss.path.unshift(path7);
     return iss;
   });
 }
@@ -21720,10 +21720,261 @@ async function assertManagedWorkspace(workspaceRoot, permissions) {
   }
 }
 
+// src/config-setup.mjs
+import { execFile as execFile2 } from "node:child_process";
+import os2 from "node:os";
+import path2 from "node:path";
+import { fileURLToPath } from "node:url";
+var CONFIGURATION_FIELDS = Object.freeze([
+  "publisherApiOrigin",
+  "projectId",
+  "dataset",
+  "sanityToken"
+]);
+var REQUIRED_CONFIGURATION_FIELDS = Object.freeze([
+  "projectId",
+  "sanityToken"
+]);
+var REINITIALIZABLE_CONFIGURATION_CODES = /* @__PURE__ */ new Set([
+  "CONFIG_NOT_FOUND",
+  "INVALID_CONFIG",
+  "LEGACY_CONFIG_REQUIRES_REINIT"
+]);
+var WINDOWS_SETUP_ENVIRONMENT_KEYS = /* @__PURE__ */ new Set([
+  "ALLUSERSPROFILE",
+  "APPDATA",
+  "COMMONPROGRAMFILES",
+  "COMMONPROGRAMFILES(X86)",
+  "COMMONPROGRAMW6432",
+  "COMSPEC",
+  "HOMEDRIVE",
+  "HOMEPATH",
+  "LOCALAPPDATA",
+  "OS",
+  "PROCESSOR_ARCHITECTURE",
+  "PROGRAMDATA",
+  "PROGRAMFILES",
+  "PROGRAMFILES(X86)",
+  "PROGRAMW6432",
+  "PUBLIC",
+  "SYSTEMDRIVE",
+  "SYSTEMROOT",
+  "TEMP",
+  "TMP",
+  "USERDOMAIN",
+  "USERNAME",
+  "WINDIR"
+]);
+var INNER_SETUP_SCRIPT = String.raw`
+$ErrorActionPreference = "Stop"
+$setupExitCode = 1
+$closeWithoutPause = $false
+try {
+  $Host.UI.RawUI.WindowTitle = "Sanity Blog Setup"
+}
+catch {
+}
+try {
+  Write-Host "Sanity Blog configuration setup"
+  Write-Host "Enter four values. Press Enter to accept displayed defaults; token input is hidden."
+  while ($true) {
+    Write-Host ""
+    & $env:SANITY_BLOG_SETUP_NODE $env:SANITY_BLOG_SETUP_CLI --init
+    $setupExitCode = $LASTEXITCODE
+    Write-Host ""
+    if ($setupExitCode -eq 0) {
+      Write-Host "Configuration saved. Return to the MCP client and retry the operation." -ForegroundColor Green
+      break
+    }
+    Write-Host "Configuration was not saved. Review the safe error above." -ForegroundColor Red
+    $retryChoice = Read-Host "Press Enter to retry, or type Q to close"
+    if ($retryChoice -match "^[Qq]$") {
+      $closeWithoutPause = $true
+      break
+    }
+  }
+}
+catch {
+  Write-Host ""
+  Write-Host "Configuration setup could not be completed." -ForegroundColor Red
+}
+if (-not $closeWithoutPause) {
+  [void](Read-Host "Press Enter to close")
+}
+exit $setupExitCode
+`;
+var OUTER_LAUNCH_SCRIPT = String.raw`
+$ErrorActionPreference = "Stop"
+$setupArguments = @(
+  "-NoLogo",
+  "-NoProfile",
+  "-ExecutionPolicy",
+  "Bypass",
+  "-EncodedCommand",
+  $env:SANITY_BLOG_SETUP_COMMAND
+)
+Start-Process -FilePath $env:SANITY_BLOG_SETUP_POWERSHELL -WorkingDirectory $env:SANITY_BLOG_SETUP_CWD -ArgumentList $setupArguments -WindowStyle Normal
+`;
+var INNER_SETUP_COMMAND = Buffer.from(INNER_SETUP_SCRIPT, "utf16le").toString("base64");
+var OUTER_LAUNCH_COMMAND = Buffer.from(OUTER_LAUNCH_SCRIPT, "utf16le").toString("base64");
+function defaultCliPath() {
+  return fileURLToPath(new URL("../dist/cli.mjs", import.meta.url));
+}
+function cleanEnvironment(environment, homeDir) {
+  const cleaned = {};
+  for (const [key, value] of Object.entries(environment ?? {})) {
+    const normalized = key.toUpperCase();
+    if (WINDOWS_SETUP_ENVIRONMENT_KEYS.has(normalized) && value !== void 0) {
+      cleaned[key] = value;
+    }
+  }
+  cleaned.HOME = homeDir;
+  cleaned.USERPROFILE = homeDir;
+  return cleaned;
+}
+function environmentValue(environment, expectedKey) {
+  for (const [key, value] of Object.entries(environment ?? {})) {
+    if (key.toUpperCase() === expectedKey && value !== void 0) return value;
+  }
+  return void 0;
+}
+function windowsPowerShellPath(environment) {
+  const systemRoot = environmentValue(environment, "SYSTEMROOT") ?? environmentValue(environment, "WINDIR");
+  if (typeof systemRoot !== "string" || !path2.win32.isAbsolute(systemRoot) || /[\u0000-\u001f\u007f]/u.test(systemRoot)) {
+    return void 0;
+  }
+  return path2.win32.join(
+    systemRoot,
+    "System32",
+    "WindowsPowerShell",
+    "v1.0",
+    "powershell.exe"
+  );
+}
+function manualCommand(execPath, cliPath) {
+  return {
+    command: execPath,
+    args: [cliPath, "--init"]
+  };
+}
+function isReinitializableConfigurationError(error2) {
+  return error2?.category === "configuration" && REINITIALIZABLE_CONFIGURATION_CODES.has(error2?.code);
+}
+function createConfigurationSetupLauncher({
+  platform = process.platform,
+  execPath = process.execPath,
+  cliPath = defaultCliPath(),
+  homeDir = os2.homedir(),
+  environment = process.env,
+  execFileImpl = execFile2,
+  clock = Date.now,
+  cooldownMs = 6e4,
+  launchTimeoutMs = 1e4
+} = {}) {
+  const command = manualCommand(execPath, cliPath);
+  let lastStartedAt;
+  let pendingLaunch;
+  return Object.freeze({
+    command,
+    async start() {
+      if (platform !== "win32") {
+        return {
+          setupStarted: false,
+          manualSetupRequired: true,
+          reason: "INTERACTIVE_TERMINAL_REQUIRED",
+          manualCommand: command
+        };
+      }
+      const powershellPath = windowsPowerShellPath(environment);
+      if (!powershellPath) {
+        return {
+          setupStarted: false,
+          manualSetupRequired: true,
+          reason: "POWERSHELL_UNAVAILABLE",
+          manualCommand: command
+        };
+      }
+      if (pendingLaunch) return pendingLaunch;
+      const now = clock();
+      if (Number.isFinite(lastStartedAt) && Number.isFinite(now) && now - lastStartedAt < cooldownMs) {
+        return {
+          setupStarted: false,
+          setupAlreadyRunning: true,
+          retryAfterSeconds: Math.max(1, Math.ceil((cooldownMs - (now - lastStartedAt)) / 1e3))
+        };
+      }
+      const childEnvironment = cleanEnvironment(environment, homeDir);
+      childEnvironment.SANITY_BLOG_SETUP_NODE = execPath;
+      childEnvironment.SANITY_BLOG_SETUP_CLI = cliPath;
+      childEnvironment.SANITY_BLOG_SETUP_CWD = platform === "win32" ? path2.win32.dirname(cliPath) : path2.dirname(cliPath);
+      childEnvironment.SANITY_BLOG_SETUP_POWERSHELL = powershellPath;
+      childEnvironment.SANITY_BLOG_SETUP_COMMAND = INNER_SETUP_COMMAND;
+      const launch = (async () => {
+        const launchError = await new Promise((resolve) => {
+          try {
+            execFileImpl(
+              powershellPath,
+              [
+                "-NoLogo",
+                "-NoProfile",
+                "-NonInteractive",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-EncodedCommand",
+                OUTER_LAUNCH_COMMAND
+              ],
+              {
+                encoding: "utf8",
+                env: childEnvironment,
+                maxBuffer: 16 * 1024,
+                timeout: launchTimeoutMs,
+                windowsHide: true
+              },
+              (error2) => resolve(error2)
+            );
+          } catch (error2) {
+            resolve(error2);
+          }
+        });
+        if (!launchError) {
+          lastStartedAt = now;
+          return { setupStarted: true };
+        }
+        return {
+          setupStarted: false,
+          manualSetupRequired: true,
+          reason: "SETUP_LAUNCH_FAILED",
+          manualCommand: command
+        };
+      })();
+      pendingLaunch = launch;
+      try {
+        return await launch;
+      } finally {
+        if (pendingLaunch === launch) pendingLaunch = void 0;
+      }
+    }
+  });
+}
+function configurationSetupSummary(launchResult) {
+  return {
+    configured: false,
+    ...launchResult,
+    configurationFieldCount: CONFIGURATION_FIELDS.length,
+    configurationFields: [...CONFIGURATION_FIELDS],
+    requiredFields: [...REQUIRED_CONFIGURATION_FIELDS],
+    defaults: {
+      publisherApiOrigin: DEFAULT_PUBLISHER_API_ORIGIN,
+      dataset: "production"
+    },
+    nextStep: launchResult.setupStarted || launchResult.setupAlreadyRunning ? "Complete the separate setup terminal, then call sanity_blog_check_config again." : "Run the manual setup command in an interactive terminal, then call sanity_blog_check_config again."
+  };
+}
+
 // src/article.mjs
 import { createHash } from "node:crypto";
 import { lstat as lstat2, readFile as readFile2, realpath } from "node:fs/promises";
-import path2 from "node:path";
+import path3 from "node:path";
 var MAX_ARTICLE_BYTES = 2 * 1024 * 1024;
 var MAX_ASSET_BYTES = 20 * 1024 * 1024;
 var MAX_ASSETS = 10;
@@ -21888,8 +22139,8 @@ var articleSchema = external_exports.object({
   }).strict()
 }).strict();
 function isInside(root, candidate) {
-  const relative = path2.relative(root, candidate);
-  return relative === "" || !relative.startsWith(`..${path2.sep}`) && relative !== ".." && !path2.isAbsolute(relative);
+  const relative = path3.relative(root, candidate);
+  return relative === "" || !relative.startsWith(`..${path3.sep}`) && relative !== ".." && !path3.isAbsolute(relative);
 }
 function deepFreeze(value) {
   if (!value || typeof value !== "object" || Object.isFrozen(value)) return value;
@@ -21936,7 +22187,7 @@ function collectLocalAssetPaths(article) {
   return [...localPaths];
 }
 async function canonicalBlogRoot(config2) {
-  const requested = path2.resolve(config2.workspaceRoot, "blog");
+  const requested = path3.resolve(config2.workspaceRoot, "blog");
   try {
     const info = await lstat2(requested);
     if (!info.isDirectory() || info.isSymbolicLink()) throw new Error("unsafe directory");
@@ -21952,12 +22203,12 @@ async function canonicalBlogRoot(config2) {
 }
 async function inspectArticleFile(articlePath2, config2) {
   const blogRoot = await canonicalBlogRoot(config2);
-  const requested = path2.resolve(articlePath2);
+  const requested = path3.resolve(articlePath2);
   let info;
   let resolvedArticle;
   try {
     info = await lstat2(requested);
-    if (!info.isFile() || info.isSymbolicLink() || path2.extname(requested).toLowerCase() !== ".json") {
+    if (!info.isFile() || info.isSymbolicLink() || path3.extname(requested).toLowerCase() !== ".json") {
       throw new Error("unsafe article");
     }
     resolvedArticle = await realpath(requested);
@@ -22002,7 +22253,7 @@ async function inspectArticleFile(articlePath2, config2) {
       { issues }
     );
   }
-  if (path2.basename(resolvedArticle, ".json") !== parsed.data.slug) {
+  if (path3.basename(resolvedArticle, ".json") !== parsed.data.slug) {
     throw new ArticleValidationError(
       "ARTICLE_SLUG_MISMATCH",
       "The article slug must match the JSON filename."
@@ -22013,7 +22264,7 @@ async function inspectArticleFile(articlePath2, config2) {
 async function inspectAssets(articleInfo) {
   const localPaths = collectLocalAssetPaths(articleInfo.article);
   if (localPaths.length === 0) return [];
-  const assetRoot = path2.join(path2.dirname(articleInfo.articlePath), "assets");
+  const assetRoot = path3.join(path3.dirname(articleInfo.articlePath), "assets");
   try {
     const rootInfo = await lstat2(assetRoot);
     const resolvedRoot = await realpath(assetRoot);
@@ -22030,7 +22281,7 @@ async function inspectAssets(articleInfo) {
   let total = articleInfo.articleBytes.length + MULTIPART_OVERHEAD_BUDGET;
   for (const relativePath of localPaths) {
     const filename = relativePath.slice("./assets/".length);
-    const candidate = path2.join(assetRoot, filename);
+    const candidate = path3.join(assetRoot, filename);
     let info;
     let resolved;
     try {
@@ -22055,7 +22306,7 @@ async function inspectAssets(articleInfo) {
         `A local image is empty or exceeds ${MAX_ASSET_BYTES} bytes: ${filename}`
       );
     }
-    const extension = path2.extname(filename).toLowerCase();
+    const extension = path3.extname(filename).toLowerCase();
     const mimeType = MIME_TYPES.get(extension);
     if (!mimeType) {
       throw new ArticleValidationError(
@@ -22148,7 +22399,7 @@ function materializeArticleRequest(snapshot, { forUpdate = false, createPublishe
   body.append(
     "article",
     new Blob([articleBytes], { type: "application/json" }),
-    path2.basename(state.articlePath)
+    path3.basename(state.articlePath)
   );
   for (const asset of state.assets) {
     body.append("assets", new Blob([asset.bytes], { type: asset.mimeType }), asset.filename);
@@ -22462,8 +22713,8 @@ import {
   rename as rename2,
   rm as rm2
 } from "node:fs/promises";
-import os2 from "node:os";
-import path3 from "node:path";
+import os3 from "node:os";
+import path4 from "node:path";
 import crypto from "node:crypto";
 var writeQueues = /* @__PURE__ */ new Map();
 var SLUG_PATTERN2 = /^[a-z0-9]+(?:-[a-z0-9]+)*$/u;
@@ -22603,9 +22854,9 @@ async function assertTargetIsSafe(targetPath) {
   }
 }
 async function writeRecordAtomically(targetPath, source, permissions) {
-  const temporaryPath = path3.join(
-    path3.dirname(targetPath),
-    `.${path3.basename(targetPath)}.${process.pid}.${crypto.randomUUID()}.tmp`
+  const temporaryPath = path4.join(
+    path4.dirname(targetPath),
+    `.${path4.basename(targetPath)}.${process.pid}.${crypto.randomUUID()}.tmp`
   );
   let handle;
   try {
@@ -22642,7 +22893,7 @@ async function writePublicationRecord({
   operation,
   article,
   result,
-  homeDir = os2.homedir(),
+  homeDir = os3.homedir(),
   platform = process.platform,
   acl = defaultWindowsAcl,
   now,
@@ -22659,7 +22910,7 @@ async function writePublicationRecord({
     platform: options.platform ?? platform,
     acl: options.acl ?? acl
   };
-  const targetPath = path3.join(publishedDirectory, `${record2.result.slug}.json`);
+  const targetPath = path4.join(publishedDirectory, `${record2.result.slug}.json`);
   return enqueue(targetPath, async () => {
     try {
       const configStats = await lstat3(configDirectory);
@@ -22702,7 +22953,7 @@ import {
   rm as rm3,
   writeFile
 } from "node:fs/promises";
-import path4 from "node:path";
+import path5 from "node:path";
 var SLUG_PATTERN3 = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 var RESERVATION_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 var PNG_SIGNATURE = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
@@ -22807,17 +23058,17 @@ function processPlatformIsPosix() {
 }
 function resolveWorkspace(config2) {
   const workspaceRoot = config2?.workspaceRoot;
-  if (typeof workspaceRoot !== "string" || workspaceRoot.length === 0 || !path4.isAbsolute(workspaceRoot)) {
+  if (typeof workspaceRoot !== "string" || workspaceRoot.length === 0 || !path5.isAbsolute(workspaceRoot)) {
     fail("INVALID_WORKSPACE_ROOT", "Configured workspaceRoot must be an absolute path.");
   }
-  const root = path4.resolve(workspaceRoot);
-  const blogRoot = path4.join(root, "blog");
+  const root = path5.resolve(workspaceRoot);
+  const blogRoot = path5.join(root, "blog");
   return {
     root,
     blogRoot,
-    assetsRoot: path4.join(blogRoot, "assets"),
-    reservationsRoot: path4.join(blogRoot, ".reservations"),
-    stagingRoot: path4.join(blogRoot, ".staging")
+    assetsRoot: path5.join(blogRoot, "assets"),
+    reservationsRoot: path5.join(blogRoot, ".reservations"),
+    stagingRoot: path5.join(blogRoot, ".staging")
   };
 }
 async function openWorkspace(config2) {
@@ -22843,9 +23094,9 @@ async function openWorkspace(config2) {
 }
 function bundlePaths(basePath, slug2) {
   return {
-    markdownPath: path4.join(basePath, `${slug2}.md`),
-    articlePath: path4.join(basePath, `${slug2}.json`),
-    coverPath: path4.join(basePath, "assets", `${slug2}-cover.png`)
+    markdownPath: path5.join(basePath, `${slug2}.md`),
+    articlePath: path5.join(basePath, `${slug2}.json`),
+    coverPath: path5.join(basePath, "assets", `${slug2}-cover.png`)
   };
 }
 async function inspectBundle(basePath, slug2) {
@@ -22908,7 +23159,7 @@ function sameBaseline(left, right) {
   return left?.state === right?.state && (left.state === "missing" || left?.digest === right?.digest);
 }
 async function writeReservationMetadata(lockPath, metadata) {
-  const metadataPath = path4.join(lockPath, METADATA_FILE);
+  const metadataPath = path5.join(lockPath, METADATA_FILE);
   try {
     await writeFile(metadataPath, `${JSON.stringify(metadata)}
 `, {
@@ -22922,7 +23173,7 @@ async function writeReservationMetadata(lockPath, metadata) {
   }
 }
 async function readReservationMetadata(workspace, slug2, reservationId2) {
-  const lockPath = path4.join(workspace.reservationsRoot, slug2);
+  const lockPath = path5.join(workspace.reservationsRoot, slug2);
   const lockKind = await getEntryKind(lockPath);
   if (lockKind === "missing") {
     fail("RESERVATION_NOT_FOUND", "No active reservation exists for this slug.");
@@ -22930,7 +23181,7 @@ async function readReservationMetadata(workspace, slug2, reservationId2) {
   if (lockKind !== "directory") {
     fail("UNSAFE_RESERVATION", "The reservation entry is not a regular directory.");
   }
-  const metadataPath = path4.join(lockPath, METADATA_FILE);
+  const metadataPath = path5.join(lockPath, METADATA_FILE);
   if (await getEntryKind(metadataPath) !== "file") {
     fail("UNSAFE_RESERVATION", "The reservation metadata is not an ordinary file.");
   }
@@ -22946,7 +23197,7 @@ async function readReservationMetadata(workspace, slug2, reservationId2) {
   return { metadata, lockPath };
 }
 async function copyExistingBundle(source, destination) {
-  await assertDirectory(path4.dirname(destination.coverPath), {
+  await assertDirectory(path5.dirname(destination.coverPath), {
     create: true,
     privateControl: true
   });
@@ -22976,8 +23227,8 @@ async function prepare({ slug: slug2, config: config2, requireExisting }) {
   const mode = localBundle.state === "complete" ? "update" : "create";
   const baseline = await digestBundle(localBundle);
   const reservationId2 = randomUUID();
-  const lockPath = path4.join(workspace.reservationsRoot, slug2);
-  const stagingPath = path4.join(workspace.stagingRoot, reservationId2);
+  const lockPath = path5.join(workspace.reservationsRoot, slug2);
+  const stagingPath = path5.join(workspace.stagingRoot, reservationId2);
   const stagingBundle = bundlePaths(stagingPath, slug2);
   let lockCreated = false;
   let stagingCreated = false;
@@ -22998,7 +23249,7 @@ async function prepare({ slug: slug2, config: config2, requireExisting }) {
     });
     stagingCreated = true;
     await assertDirectory(stagingPath, { privateControl: true });
-    await assertDirectory(path4.join(stagingPath, "assets"), {
+    await assertDirectory(path5.join(stagingPath, "assets"), {
       create: true,
       privateControl: true
     });
@@ -23135,7 +23386,7 @@ async function readStableStagingFile(entryPath, { label, maxBytes, limitDescript
   }
 }
 async function assertCommitReady(stagingBundle, slug2) {
-  const staged = await inspectBundle(path4.dirname(stagingBundle.markdownPath), slug2);
+  const staged = await inspectBundle(path5.dirname(stagingBundle.markdownPath), slug2);
   if (staged.state !== "complete") {
     fail("STAGING_BUNDLE_INCOMPLETE", "The staging bundle must contain all three files.");
   }
@@ -23273,8 +23524,8 @@ async function commitReservation({
     slug2,
     reservationId2
   );
-  const stagingPath = path4.join(workspace.stagingRoot, reservationId2);
-  const stagingAssetsPath = path4.join(stagingPath, "assets");
+  const stagingPath = path5.join(workspace.stagingRoot, reservationId2);
+  const stagingAssetsPath = path5.join(stagingPath, "assets");
   if (await getEntryKind(stagingPath) !== "directory" || await getEntryKind(stagingAssetsPath) !== "directory") {
     fail("INVALID_RESERVATION", "The reservation staging directory is missing or unsafe.");
   }
@@ -23283,12 +23534,12 @@ async function commitReservation({
   const stagingBundle = bundlePaths(stagingPath, slug2);
   await assertCommitReady(stagingBundle, slug2);
   await assertCurrentBaseline(workspace, slug2, metadata.baseline);
-  const backupRoot = path4.join(stagingPath, ".backup");
+  const backupRoot = path5.join(stagingPath, ".backup");
   await assertDirectory(backupRoot, {
     create: true,
     privateControl: true
   });
-  await assertDirectory(path4.join(backupRoot, "assets"), {
+  await assertDirectory(path5.join(backupRoot, "assets"), {
     create: true,
     privateControl: true
   });
@@ -23319,7 +23570,7 @@ async function releaseReservation({ slug: slug2, reservationId: reservationId2, 
   assertReservationId(reservationId2);
   const workspace = await openWorkspace(config2);
   const { lockPath } = await readReservationMetadata(workspace, slug2, reservationId2);
-  const stagingPath = path4.join(workspace.stagingRoot, reservationId2);
+  const stagingPath = path5.join(workspace.stagingRoot, reservationId2);
   try {
     await rm3(stagingPath, { recursive: true, force: true });
     await rm3(lockPath, { recursive: true, force: true });
@@ -23384,6 +23635,7 @@ function createBlogService({
   checkConfigImpl = checkConfig,
   recordWriter = writePublicationRecord,
   requestImpl = requestArticle,
+  configurationSetupLauncher,
   workspace = {
     preparePublish,
     prepareUpdate,
@@ -23392,6 +23644,10 @@ function createBlogService({
   }
 } = {}) {
   const configOptions = { homeDir, platform, acl };
+  const setupLauncher = configurationSetupLauncher ?? createConfigurationSetupLauncher({
+    homeDir,
+    platform
+  });
   async function configured() {
     return loadConfigImpl(configOptions);
   }
@@ -23470,6 +23726,20 @@ function createBlogService({
   return Object.freeze({
     checkConfig() {
       return run(async () => ({ ok: true, ...await checkConfigImpl(configOptions) }));
+    },
+    startConfigSetup() {
+      return run(async () => {
+        try {
+          return { ok: true, ...await checkConfigImpl(configOptions), setupStarted: false };
+        } catch (error2) {
+          const safeError = asSafeError(error2);
+          if (!isReinitializableConfigurationError(safeError)) throw safeError;
+          return {
+            ok: true,
+            ...configurationSetupSummary(await setupLauncher.start())
+          };
+        }
+      });
     },
     preparePublish(baseSlug) {
       return run(async () => {
@@ -23614,7 +23884,7 @@ function createBlogService({
 
 // src/server.mjs
 var slug = external_exports.string().min(1).max(96).regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/u);
-var articlePath = external_exports.string().min(1).max(4096).refine((value) => path5.isAbsolute(value), "articlePath must be absolute");
+var articlePath = external_exports.string().min(1).max(4096).refine((value) => path6.isAbsolute(value), "articlePath must be absolute");
 var reservationId = external_exports.string().uuid().refine(
   (value) => /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(value),
   "reservationId must be a UUID v4"
@@ -23675,11 +23945,21 @@ function registerBlogTools(server, service) {
     "sanity_blog_check_config",
     {
       title: "Check Sanity blog configuration",
-      description: "Safely checks ~/.sanity-blog/config.json, returning the configured publisher origin but never the token.",
+      description: "Safely checks ~/.sanity-blog/config.json, returning the configured publisher origin but never the token. For a reinitializable error, use sanity_blog_start_config_setup.",
       inputSchema: EMPTY_INPUT,
       annotations: READ_ONLY
     },
     safeHandler(() => service.checkConfig())
+  );
+  server.registerTool(
+    "sanity_blog_start_config_setup",
+    {
+      title: "Start Sanity blog configuration setup",
+      description: "Checks whether local configuration can be reinitialized and opens a separate Windows PowerShell setup window without accepting or returning token values. Other platforms receive a manual interactive command.",
+      inputSchema: EMPTY_INPUT,
+      annotations: LOCAL_WRITE
+    },
+    safeHandler(() => service.startConfigSetup())
   );
   server.registerTool(
     "sanity_blog_prepare_publish",
@@ -23788,7 +24068,7 @@ async function startServer({ transport = new StdioServerTransport(), service } =
 async function main() {
   await startServer();
 }
-if (process.argv[1] && path5.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (process.argv[1] && path6.resolve(process.argv[1]) === fileURLToPath2(import.meta.url)) {
   main().catch(() => {
     console.error("sanityblog MCP server failed");
     process.exitCode = 1;

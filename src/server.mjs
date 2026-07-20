@@ -92,11 +92,23 @@ export function registerBlogTools(server, service) {
     {
       title: 'Check Sanity blog configuration',
       description:
-        'Safely checks ~/.sanity-blog/config.json, returning the configured publisher origin but never the token.',
+        'Safely checks ~/.sanity-blog/config.json, returning the configured publisher origin but never the token. For a reinitializable error, use sanity_blog_start_config_setup.',
       inputSchema: EMPTY_INPUT,
       annotations: READ_ONLY,
     },
     safeHandler(() => service.checkConfig()),
+  )
+
+  server.registerTool(
+    'sanity_blog_start_config_setup',
+    {
+      title: 'Start Sanity blog configuration setup',
+      description:
+        'Checks whether local configuration can be reinitialized and opens a separate Windows PowerShell setup window without accepting or returning token values. Other platforms receive a manual interactive command.',
+      inputSchema: EMPTY_INPUT,
+      annotations: LOCAL_WRITE,
+    },
+    safeHandler(() => service.startConfigSetup()),
   )
 
   server.registerTool(

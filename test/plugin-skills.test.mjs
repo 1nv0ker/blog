@@ -72,6 +72,8 @@ test('publish skill enforces research, bilingual Portable Text, cover, confirmat
   assert.match(skill, /final `articlePath` returned by commit/u)
   assert.match(skill, /PUBLISHED_BUT_RECORD_WRITE_FAILED/u)
   assert.match(skill, /publisherApiOrigin/u)
+  assert.match(skill, /sanity_blog_start_config_setup/u)
+  assert.match(skill, /four fields/u)
   assert.match(skill, /Do not retry/u)
 
   const workflow = skill.slice(skill.indexOf('## Strict workflow'))
@@ -101,6 +103,8 @@ test('update skill requires local and remote existence and remains PUT-only', as
   assert.match(skill, /internally repeats the PUT dry-run and binds the revision/u)
   assert.match(skill, /Never create a replacement article/u)
   assert.match(skill, /publisherApiOrigin/u)
+  assert.match(skill, /sanity_blog_start_config_setup/u)
+  assert.match(skill, /four fields/u)
 
   const workflow = skill.slice(skill.indexOf('## Strict workflow'))
   const ordered = [
@@ -119,6 +123,7 @@ test('update skill requires local and remote existence and remains PUT-only', as
 test('one-click installer and minimal configuration are packaged', async () => {
   const installer = await text('install.ps1')
   const configureInstall = await text('scripts/configure-install.mjs')
+  const bundledCli = await text('dist/cli.mjs')
   const example = await json('config.example.json')
 
   assert.deepEqual(Object.keys(example), [
@@ -131,6 +136,12 @@ test('one-click installer and minimal configuration are packaged', async () => {
   assert.match(installer, /SHASUMS256\.txt/u)
   assert.match(installer, /--omit=dev --ignore-scripts/u)
   assert.match(installer, /Test-SanityBlogConfiguration/u)
+  assert.match(installer, /"dist\\cli\.mjs"/u)
+  assert.match(
+    installer,
+    /\$installedCli = Join-Path \$resolvedInstallRoot "dist\\cli\.mjs"/u,
+  )
+  assert.match(bundledCli, /CONFIG_INPUT_REQUIRED/u)
   assert.match(configureInstall, /INSTALLED_BY_DEFAULT/u)
   assert.match(configureInstall, /ON_INSTALL/u)
   assert.match(configureInstall, /runtime["', ]+, "node\.exe"/u)
@@ -144,6 +155,9 @@ test('README documents one-click installation, broad MCP compatibility, and reco
     'codex plugin add sanityblog@sanityblog',
     '不支持把 Git URL 直接作为 `plugin add` 的参数',
     'dist/server.mjs',
+    'dist/cli.mjs',
+    'sanity_blog_start_config_setup',
+    '固定持久化 **4 项**',
     '不需要预先安装 Git、Node.js 或 npm',
     'raw.githubusercontent.com/1nv0ker/dashboard/main/install.ps1',
     'Node.js 22.23.1',

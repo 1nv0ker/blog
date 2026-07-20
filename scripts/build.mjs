@@ -12,8 +12,12 @@ const outputDirectory = path.join(pluginRoot, 'dist')
 await mkdir(outputDirectory, {recursive: true})
 await build({
   absWorkingDir: pluginRoot,
-  entryPoints: ['src/server.mjs'],
-  outfile: 'dist/server.mjs',
+  entryPoints: {
+    server: 'src/server.mjs',
+    cli: 'src/cli.mjs',
+  },
+  outdir: 'dist',
+  outExtension: {'.js': '.mjs'},
   bundle: true,
   platform: 'node',
   format: 'esm',

@@ -3,6 +3,11 @@ import {
   defaultWindowsAcl,
   loadConfig,
 } from './config.mjs'
+import {
+  configurationSetupSummary,
+  createConfigurationSetupLauncher,
+  isReinitializableConfigurationError,
+} from './config-setup.mjs'
 import {SafeError} from './errors.mjs'
 import {
   describeArticleSnapshot,
@@ -86,6 +91,7 @@ export function createBlogService({
   checkConfigImpl = checkConfig,
   recordWriter = writePublicationRecord,
   requestImpl = requestArticle,
+  configurationSetupLauncher,
   workspace = {
     preparePublish,
     prepareUpdate,
@@ -94,6 +100,10 @@ export function createBlogService({
   },
 } = {}) {
   const configOptions = {homeDir, platform, acl}
+  const setupLauncher = configurationSetupLauncher ?? createConfigurationSetupLauncher({
+    homeDir,
+    platform,
+  })
 
   async function configured() {
     return loadConfigImpl(configOptions)
@@ -181,6 +191,21 @@ export function createBlogService({
   return Object.freeze({
     checkConfig() {
       return run(async () => ({ok: true, ...(await checkConfigImpl(configOptions))}))
+    },
+
+    startConfigSetup() {
+      return run(async () => {
+        try {
+          return {ok: true, ...(await checkConfigImpl(configOptions)), setupStarted: false}
+        } catch (error) {
+          const safeError = asSafeError(error)
+          if (!isReinitializableConfigurationError(safeError)) throw safeError
+          return {
+            ok: true,
+            ...configurationSetupSummary(await setupLauncher.start()),
+          }
+        }
+      })
     },
 
     preparePublish(baseSlug) {

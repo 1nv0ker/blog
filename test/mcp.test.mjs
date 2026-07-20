@@ -12,6 +12,7 @@ import {createMcpServer} from '../src/server.mjs'
 
 const EXPECTED_TOOLS = [
   'sanity_blog_check_config',
+  'sanity_blog_start_config_setup',
   'sanity_blog_prepare_publish',
   'sanity_blog_prepare_update',
   'sanity_blog_validate',
@@ -29,6 +30,12 @@ function stubService(overrides = {}) {
       ok: true,
       configured: true,
       publisherApiOrigin: 'https://publisher.example.test',
+    }),
+    startConfigSetup: async () => ({
+      ok: true,
+      configured: false,
+      setupStarted: true,
+      configurationFieldCount: 4,
     }),
     preparePublish: async (baseSlug) => ({ok: true, slug: baseSlug}),
     prepareUpdate: async (slug) => ({ok: true, slug}),
@@ -77,6 +84,32 @@ test('MCP initializes and lists all strict tool schemas with annotations', async
   const update = listed.tools.find((tool) => tool.name === 'sanity_blog_update')
   assert.equal(update.annotations.destructiveHint, true)
   assert.equal(update.annotations.openWorldHint, true)
+  const setup = listed.tools.find((tool) => tool.name === 'sanity_blog_start_config_setup')
+  assert.equal(setup.annotations.readOnlyHint, false)
+  assert.equal(setup.annotations.destructiveHint, false)
+  assert.equal(setup.annotations.openWorldHint, false)
+})
+
+test('MCP configuration setup returns structured launch state without token input', async (t) => {
+  const {client, server} = await connectedPair()
+  t.after(async () => {
+    await client.close()
+    await server.close()
+  })
+
+  const result = await client.callTool({
+    name: 'sanity_blog_start_config_setup',
+    arguments: {},
+  })
+  assert.equal(result.isError, undefined)
+  assert.deepEqual(JSON.parse(result.content[0].text), result.structuredContent)
+  assert.deepEqual(result.structuredContent, {
+    ok: true,
+    configured: false,
+    setupStarted: true,
+    configurationFieldCount: 4,
+  })
+  assert.doesNotMatch(result.content[0].text, /token\s*[:=]\s*[^,}\s]+/iu)
 })
 
 test('MCP tool results contain equivalent structuredContent and JSON text', async (t) => {
@@ -197,6 +230,17 @@ test('stdio stdout contains JSON-RPC only', async () => {
     await complete
     assert.ok(stdout.length >= 2)
     assert.ok(stdout.every((message) => message.jsonrpc === '2.0'))
+    const toolsResponse = stdout.find((message) => message.id === 2)
+    assert.deepEqual(
+      toolsResponse.result.tools.map((tool) => tool.name),
+      EXPECTED_TOOLS,
+    )
+    const setupTool = toolsResponse.result.tools.find(
+      (tool) => tool.name === 'sanity_blog_start_config_setup',
+    )
+    assert.equal(setupTool.inputSchema.additionalProperties, false)
+    assert.equal(setupTool.annotations.readOnlyHint, false)
+    assert.equal(setupTool.annotations.destructiveHint, false)
   } finally {
     child.stdin.end()
     child.kill()

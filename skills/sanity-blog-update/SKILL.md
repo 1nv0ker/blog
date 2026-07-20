@@ -12,6 +12,7 @@ Update one existing article through the bundled local MCP server. Treat the fina
 Use only the exact schemas exposed by the `sanityblog` MCP server:
 
 - `sanity_blog_check_config({})`
+- `sanity_blog_start_config_setup({})`
 - `sanity_blog_prepare_update({slug})`
 - `sanity_blog_validate({articlePath})`
 - `sanity_blog_probe_update({articlePath})`
@@ -111,7 +112,7 @@ If no valid staged cover exists and no image-generation capability is available,
 ## Strict workflow
 
 1. Confirm that the user explicitly wants to update an existing article. Collect its exact slug, requested changes, bilingual impact, target profile, and cover requirements. Resolve ambiguity before preparing an attempt.
-2. Call `sanity_blog_check_config({})`. Stop on missing or invalid configuration. Capture the safe `publisherApiOrigin` and Sanity target for later confirmation; never inspect the token. Direct the user to the documented `--init` or `--check` command when configuration is invalid.
+2. Call `sanity_blog_check_config({})`. If it returns `CONFIG_NOT_FOUND`, `INVALID_CONFIG`, or `LEGACY_CONFIG_REQUIRES_REINIT`, call `sanity_blog_start_config_setup({})` once. On Windows it opens a separate interactive PowerShell; on other platforms present the returned manual command. Tell the user that setup asks for four fields, that the token is entered only in the terminal, and stop this attempt until the user completes setup. For every other configuration error, stop without launching setup. After a successful check, capture the safe `publisherApiOrigin` and Sanity target for later confirmation; never inspect the token.
 3. Call `sanity_blog_prepare_update({slug})` once. Preparation confirms only that the complete local article bundle exists and copies it into staging; it does not prove that a remote article exists. Stop if the local bundle is missing or incomplete. Capture `articlePath`, `markdownPath`, `coverPath`, canonical slug, and `reservationId`.
 4. Compare the current staged article with the user's request. Research every changed or newly introduced factual claim under the source-trust rules.
 5. Write the complete revised English and Chinese Markdown at the returned `markdownPath` and explicitly update the corresponding strict JSON at the returned `articlePath`. Convert both bodies to valid Portable Text arrays, maintain localized title/excerpt/SEO fields, and end the English and Chinese bodies with linked `## Sources` and `## 来源` sections.

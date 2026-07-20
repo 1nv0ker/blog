@@ -8,7 +8,18 @@ import {createInterface} from 'node:readline/promises'
 import {checkConfig, initializeConfig} from './config.mjs'
 import {DEFAULT_PUBLISHER_API_ORIGIN} from './constants.mjs'
 import {SafeError, toSafeErrorResult} from './errors.mjs'
-import {asSafeError} from './service.mjs'
+
+function asCliSafeError(error) {
+  if (error instanceof SafeError) return error
+  return new SafeError({
+    category: 'internal',
+    code: 'INTERNAL_ERROR',
+    retryable: false,
+    resultUnknown: false,
+    safeMessage: 'Sanity blog configuration setup failed safely.',
+    cause: error,
+  })
+}
 
 function configurationInputError(code, safeMessage) {
   return new SafeError({
@@ -117,8 +128,8 @@ export async function runCli(args = process.argv.slice(2)) {
     return {
       ok: true,
       usage: [
-        'node src/cli.mjs --init',
-        'node src/cli.mjs --check',
+        'node dist/cli.mjs --init',
+        'node dist/cli.mjs --check',
       ],
     }
   }
@@ -133,7 +144,7 @@ async function main() {
   try {
     printJson(await runCli())
   } catch (error) {
-    printJson(toSafeErrorResult(asSafeError(error)), process.stderr)
+    printJson(toSafeErrorResult(asCliSafeError(error)), process.stderr)
     process.exitCode = 1
   }
 }
