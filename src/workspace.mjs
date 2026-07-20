@@ -617,6 +617,7 @@ function transactionPairs(stagingBundle, destinationBundle, backupRoot, slug) {
 }
 
 const DEFAULT_TRANSACTION_OPS = Object.freeze({ rename });
+const DEFAULT_CLEANUP_OPS = Object.freeze({ rm });
 
 async function rollbackTransaction({ moved, backedUp, fileOps }) {
   let failed = false;
@@ -676,6 +677,7 @@ export async function commitReservation({
   reservationId,
   config,
   fileOps = DEFAULT_TRANSACTION_OPS,
+  cleanupOps = DEFAULT_CLEANUP_OPS,
 }) {
   assertSlug(slug);
   assertReservationId(reservationId);
@@ -714,13 +716,21 @@ export async function commitReservation({
   await commitTransaction({ pairs, mode: metadata.mode, fileOps });
 
   try {
-    await rm(stagingPath, { recursive: true, force: true });
-    await rm(lockPath, { recursive: true, force: true });
+    await cleanupOps.rm(stagingPath, { recursive: true, force: true });
+    await cleanupOps.rm(lockPath, { recursive: true, force: true });
   } catch {
     fail(
       "COMMIT_CLEANUP_FAILED",
       "The article was committed, but reservation cleanup failed.",
-      { committed: true },
+      {
+        committed: true,
+        slug,
+        reservationId,
+        mode: metadata.mode,
+        markdownPath: destinationBundle.markdownPath,
+        articlePath: destinationBundle.articlePath,
+        coverPath: destinationBundle.coverPath,
+      },
     );
   }
 

@@ -31,10 +31,13 @@ const reservationId = z
     'reservationId must be a UUID v4',
   )
 
+const previewRevision = z.string().regex(/^[0-9a-f]{64}$/u)
+
 const EMPTY_INPUT = z.object({}).strict()
 const BASE_SLUG_INPUT = z.object({baseSlug: slug}).strict()
 const SLUG_INPUT = z.object({slug}).strict()
 const ARTICLE_INPUT = z.object({articlePath}).strict()
+const PREVIEWED_ARTICLE_INPUT = z.object({articlePath, previewRevision}).strict()
 const RESERVATION_INPUT = z.object({slug, reservationId}).strict()
 
 const READ_ONLY = Object.freeze({
@@ -47,6 +50,12 @@ const LOCAL_WRITE = Object.freeze({
   readOnlyHint: false,
   destructiveHint: false,
   idempotentHint: false,
+  openWorldHint: false,
+})
+const LOCAL_RENDER = Object.freeze({
+  readOnlyHint: false,
+  destructiveHint: false,
+  idempotentHint: true,
   openWorldHint: false,
 })
 const LOCAL_DESTRUCTIVE = Object.freeze({
@@ -148,15 +157,28 @@ export function registerBlogTools(server, service) {
   )
 
   server.registerTool(
+    'sanity_blog_preview',
+    {
+      title: 'Render a local Sanity blog preview',
+      description:
+        'Validates the article JSON and local images, requires the sibling Markdown source, and writes a safe bilingual HTML preview without any remote request.',
+      inputSchema: ARTICLE_INPUT,
+      annotations: LOCAL_RENDER,
+    },
+    safeHandler(({articlePath: value}) => service.preview(value)),
+  )
+
+  server.registerTool(
     'sanity_blog_probe_publish',
     {
       title: 'Probe a Sanity blog publish',
       description:
-        'Runs one POST dry-run and only after a sanitized slug conflict runs one PUT dry-run; it performs no final article mutation.',
-      inputSchema: ARTICLE_INPUT,
+        'Revalidates the exact accepted local preview revision, then runs one POST dry-run and only after a sanitized slug conflict runs one PUT dry-run; it performs no final article mutation.',
+      inputSchema: PREVIEWED_ARTICLE_INPUT,
       annotations: REMOTE_PROBE,
     },
-    safeHandler(({articlePath: value}) => service.probePublish(value)),
+    safeHandler(({articlePath: value, previewRevision: revision}) =>
+      service.probePublish(value, revision)),
   )
 
   server.registerTool(
@@ -164,11 +186,12 @@ export function registerBlogTools(server, service) {
     {
       title: 'Probe a strict Sanity blog update',
       description:
-        'Runs only a PUT dry-run for an existing remote article and returns its guarded revision.',
-      inputSchema: ARTICLE_INPUT,
+        'Revalidates the exact accepted local preview revision, then runs only a PUT dry-run for an existing remote article and returns its guarded revision.',
+      inputSchema: PREVIEWED_ARTICLE_INPUT,
       annotations: REMOTE_PROBE,
     },
-    safeHandler(({articlePath: value}) => service.probeUpdate(value)),
+    safeHandler(({articlePath: value, previewRevision: revision}) =>
+      service.probeUpdate(value, revision)),
   )
 
   server.registerTool(
@@ -188,7 +211,7 @@ export function registerBlogTools(server, service) {
     {
       title: 'Release a Sanity blog reservation',
       description:
-        'Releases only the matching uncommitted local reservation and its staging bundle.',
+        'Releases the matching reservation and any remaining staging bundle, including one cleanup attempt after a confirmed committed result whose automatic cleanup failed.',
       inputSchema: RESERVATION_INPUT,
       annotations: LOCAL_DESTRUCTIVE,
     },
@@ -200,11 +223,12 @@ export function registerBlogTools(server, service) {
     {
       title: 'Publish a Sanity blog article',
       description:
-        'Validates locally, probes create, safely falls back to guarded update only on a sanitized conflict, performs one final mutation, and writes the local publication record.',
-      inputSchema: ARTICLE_INPUT,
+        'Revalidates the exact accepted local preview revision, probes create, safely falls back to guarded update only on a sanitized conflict, performs one final mutation, and writes the local publication record.',
+      inputSchema: PREVIEWED_ARTICLE_INPUT,
       annotations: REMOTE_MUTATION,
     },
-    safeHandler(({articlePath: value}) => service.publish(value)),
+    safeHandler(({articlePath: value, previewRevision: revision}) =>
+      service.publish(value, revision)),
   )
 
   server.registerTool(
@@ -212,11 +236,12 @@ export function registerBlogTools(server, service) {
     {
       title: 'Strictly update a Sanity blog article',
       description:
-        'Validates locally, obtains a revision through a PUT dry-run, performs one revision-guarded PUT, and never creates an article.',
-      inputSchema: ARTICLE_INPUT,
+        'Revalidates the exact accepted local preview revision, obtains a revision through a PUT dry-run, performs one revision-guarded PUT, and never creates an article.',
+      inputSchema: PREVIEWED_ARTICLE_INPUT,
       annotations: REMOTE_MUTATION,
     },
-    safeHandler(({articlePath: value}) => service.update(value)),
+    safeHandler(({articlePath: value, previewRevision: revision}) =>
+      service.update(value, revision)),
   )
 }
 

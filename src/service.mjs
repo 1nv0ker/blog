@@ -10,6 +10,7 @@ import {
 } from './config-setup.mjs'
 import {SafeError} from './errors.mjs'
 import {
+  ArticleValidationError,
   describeArticleSnapshot,
   prepareArticleSnapshot,
 } from './article.mjs'
@@ -19,6 +20,7 @@ import {
   requestArticle,
 } from './api.mjs'
 import {writePublicationRecord} from './records.mjs'
+import {PreviewError, renderArticlePreview} from './preview.mjs'
 import {
   WorkspaceError,
   commitReservation,
@@ -31,6 +33,7 @@ function genericMessage(category) {
   if (category === 'validation') return 'Local article validation failed before any remote request.'
   if (category === 'configuration') return 'The local Sanity blog configuration is invalid.'
   if (category === 'workspace') return 'The local blog workspace operation failed safely.'
+  if (category === 'preview') return 'The local blog preview could not be generated safely.'
   if (category === 'api') return 'The publisher API did not return a confirmed safe result.'
   return 'The local sanityblog operation failed safely.'
 }
@@ -53,6 +56,13 @@ export function asSafeError(error) {
       statusCode: error.statusCode,
       requestId: error.requestId,
       uploadedAssetIds: error.uploadedAssetIds,
+      issues: error instanceof ArticleValidationError ? error.details?.issues : undefined,
+      committed:
+        error instanceof WorkspaceError && error.details?.committed === true,
+      commitReceipt:
+        error instanceof WorkspaceError && error.details?.committed === true
+          ? error.details
+          : undefined,
       safeMessage: genericMessage(error.category),
       cause: error,
     })
@@ -91,6 +101,7 @@ export function createBlogService({
   checkConfigImpl = checkConfig,
   recordWriter = writePublicationRecord,
   requestImpl = requestArticle,
+  previewRenderer = renderArticlePreview,
   configurationSetupLauncher,
   workspace = {
     preparePublish,
@@ -122,6 +133,23 @@ export function createBlogService({
       ...(timeoutMs === undefined ? {} : {timeoutMs}),
       ...options,
     })
+  }
+
+  async function requireAcceptedPreview(articleSnapshot, previewRevision) {
+    if (typeof previewRevision !== 'string' || !/^[0-9a-f]{64}$/u.test(previewRevision)) {
+      throw new PreviewError(
+        'PREVIEW_REVISION_INVALID',
+        'A valid accepted preview revision is required before any remote request.',
+      )
+    }
+    const preview = await previewRenderer(articleSnapshot)
+    if (preview?.previewRevision !== previewRevision) {
+      throw new PreviewError(
+        'PREVIEW_REVISION_MISMATCH',
+        'The article bundle no longer matches the accepted local preview.',
+      )
+    }
+    return preview
   }
 
   async function probePublishSnapshot(articleSnapshot, config, createPublishedAt) {
@@ -249,9 +277,17 @@ export function createBlogService({
       })
     },
 
-    probePublish(articlePath) {
+    preview(articlePath) {
+      return run(async () => {
+        const {articleSnapshot} = await snapshot(articlePath)
+        return previewRenderer(articleSnapshot)
+      })
+    },
+
+    probePublish(articlePath, previewRevision) {
       return run(async () => {
         const {config, articleSnapshot} = await snapshot(articlePath)
+        await requireAcceptedPreview(articleSnapshot, previewRevision)
         const createPublishedAt = clock().toISOString()
         const outcome = await probePublishSnapshot(
           articleSnapshot,
@@ -263,6 +299,7 @@ export function createBlogService({
           mode: outcome.mode,
           slug: articleSnapshot.slug,
           articlePath: articleSnapshot.articlePath,
+          previewRevision,
           ...(outcome.mode === 'create'
             ? {publishedAt: outcome.createPublishedAt}
             : {
@@ -276,9 +313,10 @@ export function createBlogService({
       })
     },
 
-    probeUpdate(articlePath) {
+    probeUpdate(articlePath, previewRevision) {
       return run(async () => {
         const {config, articleSnapshot} = await snapshot(articlePath)
+        await requireAcceptedPreview(articleSnapshot, previewRevision)
         const outcome = await remoteRequest(
           'update-dry-run',
           articleSnapshot,
@@ -289,6 +327,7 @@ export function createBlogService({
           mode: 'update',
           slug: articleSnapshot.slug,
           articlePath: articleSnapshot.articlePath,
+          previewRevision,
           id: outcome.result.id,
           revision: outcome.result.revision,
           requestId: outcome.result.requestId,
@@ -298,9 +337,10 @@ export function createBlogService({
       })
     },
 
-    publish(articlePath) {
+    publish(articlePath, previewRevision) {
       return run(async () => {
         const {config, articleSnapshot} = await snapshot(articlePath)
+        await requireAcceptedPreview(articleSnapshot, previewRevision)
         const createPublishedAt = clock().toISOString()
         const outcome = await probePublishSnapshot(
           articleSnapshot,
@@ -327,14 +367,16 @@ export function createBlogService({
           operation,
           ...final.result,
           articlePath: articleSnapshot.articlePath,
+          previewRevision,
           recordPath,
         }
       })
     },
 
-    update(articlePath) {
+    update(articlePath, previewRevision) {
       return run(async () => {
         const {config, articleSnapshot} = await snapshot(articlePath)
+        await requireAcceptedPreview(articleSnapshot, previewRevision)
         const probe = await remoteRequest(
           'update-dry-run',
           articleSnapshot,
@@ -355,6 +397,7 @@ export function createBlogService({
           operation,
           ...final.result,
           articlePath: articleSnapshot.articlePath,
+          previewRevision,
           recordPath,
         }
       })

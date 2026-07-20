@@ -1,6 +1,6 @@
 # sanityblog
 
-`sanityblog` 是一个本机 Node.js stdio MCP Server 插件，用于准备、校验、探测、发布和更新博客文章。插件把“发布新文章”和“更新现有文章”拆成两个必须显式调用的技能，并把真正的远端写入留在最后一步确认之后。
+`sanityblog` 是一个本机 Node.js stdio MCP Server 插件，用于准备、校验、可视化预览、探测、发布和更新博客文章。插件把“本地预览草稿”“发布新文章”和“更新现有文章”拆成三个必须显式调用的技能，并把真正的远端写入留在最后一步确认之后。
 
 源码仓库：[1nv0ker/blog](https://github.com/1nv0ker/blog)
 
@@ -35,7 +35,7 @@ Git marketplace 安装不会运行仓库里的 `install.ps1`、`npm install` 或
 - Cline
 - 其他支持本地 stdio MCP 的客户端
 
-MCP tools 是广泛兼容层：只要客户端支持本地 stdio MCP，就可以调用 `sanity_blog_*` 工具。完整的发布/更新技能工作流只会在支持 Agent Skills 或插件技能的客户端中自动加载；不支持技能的客户端仍可用 MCP tools，但必须由用户或客户端提示词显式执行同等的研究、校验、封面、确认和禁止重试规则。
+MCP tools 是广泛兼容层：只要客户端支持本地 stdio MCP，就可以调用 `sanity_blog_*` 工具。完整的预览/发布/更新技能工作流只会在支持 Agent Skills 或插件技能的客户端中自动加载；不支持技能的客户端仍可用 MCP tools，但必须由用户或客户端提示词显式执行同等的研究、校验、预览、封面、确认和禁止重试规则。
 
 ## 能力与安全模型
 
@@ -45,6 +45,7 @@ MCP tools 是广泛兼容层：只要客户端支持本地 stdio MCP，就可以
 - Git 分发用预构建 Server：`dist/server.mjs`
 - 配置 CLI 源码：`src/cli.mjs`
 - Git 分发用预构建配置 CLI：`dist/cli.mjs`
+- 本地预览技能：`skills/sanity-blog-preview/`
 - 发布技能：`skills/sanity-blog-publish/`
 - 更新技能：`skills/sanity-blog-update/`
 - Codex 插件清单：`.codex-plugin/plugin.json`
@@ -302,12 +303,13 @@ node src/cli.mjs --check
 
 ## 技能安装
 
-插件原生提供两个技能：
+插件原生提供三个技能：
 
+- `sanity-blog-preview`：生成同结构的双语 Markdown、严格文章 JSON 和 PNG 封面，校验后输出零远端请求的本地 HTML 可视化预览；可选择仅保存到本地文章目录。
 - `sanity-blog-publish`：准备并发布新文章；仅在 POST dry-run 返回明确冲突后，才允许经过 PUT dry-run 的受控更新路径。
 - `sanity-blog-update`：更新明确存在的文章；始终是 PUT dry-run 加一次 PUT，永不 POST 创建。
 
-Codex 和 Claude Code 以插件方式安装时会自动发现根目录 `skills/`。其他客户端如果支持 Agent Skills，可把两个技能目录复制到其项目级技能目录：
+Codex 和 Claude Code 以插件方式安装时会自动发现根目录 `skills/`。其他客户端如果支持 Agent Skills，可把三个技能目录复制到其项目级技能目录：
 
 | 客户端 | 常用项目级目录 |
 | --- | --- |
@@ -317,7 +319,7 @@ Codex 和 Claude Code 以插件方式安装时会自动发现根目录 `skills/`
 | Cline | `.cline/skills/`；部分版本也识别 `.claude/skills/` |
 | Claude Code | `.claude/skills/`，或直接安装本插件 |
 
-两个技能的 `agents/openai.yaml` 都设置 `policy.allow_implicit_invocation: false`。不识别该字段的客户端通常会忽略它，因此仍须依靠工具审批策略；不要把写工具加入自动批准名单。再次强调：MCP tools 可被更多客户端调用，但完整技能工作流只有支持 Agent Skills 或插件技能的客户端才能加载。
+三个技能的 `agents/openai.yaml` 都设置 `policy.allow_implicit_invocation: false`。不识别该字段的客户端通常会忽略它，因此仍须依靠工具审批策略；不要把写工具加入自动批准名单。再次强调：MCP tools 可被更多客户端调用，但完整技能工作流只有支持 Agent Skills 或插件技能的客户端才能加载。
 
 ## MCP 工具
 
@@ -328,12 +330,13 @@ Codex 和 Claude Code 以插件方式安装时会自动发现根目录 `skills/`
 | `sanity_blog_prepare_publish` | 为 base slug 建立发布 staging 与 reservation | 仅本机 |
 | `sanity_blog_prepare_update` | 为已有 slug 建立更新 staging 与 reservation | 仅本机 |
 | `sanity_blog_validate` | 校验指定 `articlePath` 的本地快照 | 无 |
-| `sanity_blog_probe_publish` | 自身执行 POST dry-run；仅明确冲突时内部执行 PUT dry-run | 不提交远端内容 |
-| `sanity_blog_probe_update` | 对更新候选执行 PUT dry-run | 不提交远端内容 |
+| `sanity_blog_preview` | 校验 JSON、确认同名 Markdown，并生成双语 HTML 可视化预览 | 仅本机 |
+| `sanity_blog_probe_publish` | 核验已接受的 `previewRevision` 后执行 POST dry-run；仅明确冲突时内部执行 PUT dry-run | 不提交远端内容 |
+| `sanity_blog_probe_update` | 核验已接受的 `previewRevision` 后对更新候选执行 PUT dry-run | 不提交远端内容 |
 | `sanity_blog_commit` | 提交 slug reservation，锁定最终尝试 | 仅本机 |
 | `sanity_blog_release` | 在明确未发生远端写入时释放 reservation | 仅本机 |
-| `sanity_blog_publish` | 发布快照：一次 POST；仅明确冲突时走受控 PUT | 写远端 |
-| `sanity_blog_update` | 对已有文章执行一次 PUT | 写远端 |
+| `sanity_blog_publish` | 再次核验已接受的 `previewRevision` 并发布快照：一次 POST；仅明确冲突时走受控 PUT | 写远端 |
+| `sanity_blog_update` | 再次核验已接受的 `previewRevision` 并对已有文章执行一次 PUT | 写远端 |
 
 所有输入 schema 都使用 `additionalProperties: false`。调用方必须使用工具暴露的确切参数：
 
@@ -343,12 +346,13 @@ sanity_blog_start_config_setup({})
 sanity_blog_prepare_publish({baseSlug})
 sanity_blog_prepare_update({slug})
 sanity_blog_validate({articlePath})
-sanity_blog_probe_publish({articlePath})
-sanity_blog_probe_update({articlePath})
+sanity_blog_preview({articlePath})
+sanity_blog_probe_publish({articlePath, previewRevision})
+sanity_blog_probe_update({articlePath, previewRevision})
 sanity_blog_commit({slug, reservationId})
 sanity_blog_release({slug, reservationId})
-sanity_blog_publish({articlePath})
-sanity_blog_update({articlePath})
+sanity_blog_publish({articlePath, previewRevision})
+sanity_blog_update({articlePath, previewRevision})
 ```
 
 ## 严格操作顺序
@@ -358,14 +362,34 @@ sanity_blog_update({articlePath})
 1. `prepare_*` 创建独立 staging 和 reservation。
 2. 在 staging 中生成或修改文章与封面。
 3. `validate` 在本地校验；失败时不发送远端写请求。
-4. `probe_*` 对将要发送的精确快照执行 dry-run。`sanity_blog_probe_publish` 自己完成 POST dry-run，并且只在明确冲突时内部完成 PUT dry-run；调用方不再额外调用 `probe_update`。
-5. probe 成功后立刻冻结所有 staging 文件，不再修改 Markdown、文章 JSON、封面或 metadata。需要修改时必须放弃本次 probe，并在安全释放后重新准备、校验和 probe。
-6. 请求层根据 probe 模式处理 publication time：`mode=create` 在同一次尝试中写当前 UTC `publishedAt`；`mode=update` 自动从请求中省略 `publishedAt`。调用方不要在 probe 后手工增删该字段。
-7. 向用户展示目标、slug、模式、字段变化、来源和封面，并取得最终确认。
-8. `commit` reservation，并以 commit 返回的最终 `articlePath`、`markdownPath`、`coverPath` 为准。
-9. 只调用一次最终 `publish` 或 `update`，且传入 commit 返回的最终 `articlePath`。最终工具会内部重新 dry-run 并绑定 revision。
+4. `preview` 在本地生成 `<slug>.preview.html`：上半部分渲染实际发布使用的 JSON Portable Text，下半部分安全渲染同名 Markdown，便于发现两者不一致。本地图字节会内嵌到 HTML，现有预览不会因源图随后变化而漂移。该工具不会发起任何远端请求，并返回绑定 JSON、Markdown 和已校验本地图字节的 `previewRevision`。
+5. 用户可以在此阶段反复修改；每次改动后重新 `validate` 和 `preview`。只有用户接受当前预览后才能进入 probe；调用方必须保存该次返回的精确 `previewRevision`。
+6. `probe_*` 必须同时接收 `articlePath` 和用户已接受的 `previewRevision`，并由工具核验当前快照与该 revision 一致后才执行 dry-run。`sanity_blog_probe_publish` 自己完成 POST dry-run，并且只在明确冲突时内部完成 PUT dry-run；调用方不再额外调用 `probe_update`。
+7. probe 成功后立刻冻结 Markdown、文章 JSON、封面和 metadata。需要修改时必须放弃本次 probe，并在安全释放后重新准备、校验、预览和 probe；仅重新生成不改变三件套的 HTML 预览是允许的。
+8. 请求层根据 probe 模式处理 publication time：`mode=create` 在同一次尝试中写当前 UTC `publishedAt`；`mode=update` 自动从请求中省略 `publishedAt`。调用方不要在 probe 后手工增删该字段。
+9. 向用户展示目标、slug、模式、字段变化、来源、封面和接受的预览路径，并取得最终确认。
+10. `commit` reservation，并以 commit 返回的最终 `articlePath`、`markdownPath`、`coverPath` 为准。若返回或抛出 `COMMIT_CLEANUP_FAILED` 且明确携带 `committed: true`，本地提交已经完成：不得重试 `commit`；仅尝试一次安全 `release` 清理残留 reservation，然后使用其可信最终路径继续。即使清理仍失败，也只报告残留状态，不回滚或重复提交。若 `committed` 不是明确的 `true`，或无法取得可信最终路径，立即停止且不得远端写入。
+11. 为最终路径重新生成持久 HTML 预览，并要求其 `previewRevision` 与用户接受的 staging revision 完全一致。
+12. 只调用一次最终 `publish` 或 `update`，同时传入 commit 的最终 `articlePath` 与同一个已接受的 `previewRevision`。最终工具必须再次核验二者一致，再内部 dry-run、绑定远端 revision 并写入；任何预览 revision 不匹配都在远端请求前停止。
 
 发布流程只接受 `sanity_blog_probe_publish` 返回的 create 模式或其明确冲突驱动的 update 模式。更新流程永远不使用 POST；`sanity_blog_prepare_update` 只确认完整本地文章三件套并建立 staging，远端文章是否存在必须由 `sanity_blog_probe_update` 证明。probe 报告远端缺失时必须硬停止，不能创建替代文章。
+
+## 本地可视化预览
+
+`sanity_blog_preview` 要求同目录下同时存在 `<slug>.json` 和 `<slug>.md`，并先复用完整文章校验，因此 JSON 引用的本地图也必须有效。生成结果固定为同目录的 `<slug>.preview.html`，重复预览会安全替换这个可再生文件。本地图使用生成时已校验的字节内嵌到 HTML，而不是保留对源文件的运行时引用；因此已经生成的预览不会在源图被替换后静默改变。再次生成时会读取新字节并产生不同的 `previewRevision`。
+
+预览页不加载外部脚本、样式或远端图片，并通过 CSP 限制主动内容。它包含：
+
+- 双语标题、摘要和 JSON Portable Text 正文；
+- 以内嵌 data URL 固化的本地封面；
+- 链接、列表、引用和代码块；
+- SEO 标题/描述卡片；
+- 单独的 Markdown 安全渲染区域；
+- 对远端 Sanity assetRef 的占位显示。
+
+最终发布 payload 读取 `<slug>.json`，不会把 Markdown 自动转换成 JSON。工具不会自动证明二者语义等价，必须人工比较两个渲染区域并在 probe 前修正差异。预览只近似线上页面；真实站点的主题、字体、间距和组件仍可能不同。
+
+当前 workspace commit 是严格三件套：Markdown、JSON 和 `<slug>-cover.png`。封面是唯一允许的本地图。技能不得创建或引用额外本地正文图片，也不得把正文图片写成文件路径或远程 URL；每个 Portable Text 正文 `image` 必须使用已存在的 Sanity `assetRef`，否则必须省略。
 
 ## 本地发布记录
 
@@ -477,6 +501,7 @@ $repo = (Get-Location).Path
 $codexHome = if ($env:CODEX_HOME) { $env:CODEX_HOME } else { "$HOME\.codex" }
 python "$codexHome\skills\.system\skill-creator\scripts\quick_validate.py" "$repo\skills\sanity-blog-publish"
 python "$codexHome\skills\.system\skill-creator\scripts\quick_validate.py" "$repo\skills\sanity-blog-update"
+python "$codexHome\skills\.system\skill-creator\scripts\quick_validate.py" "$repo\skills\sanity-blog-preview"
 python "$codexHome\skills\.system\plugin-creator\scripts\validate_plugin.py" $repo
 ```
 
@@ -486,7 +511,7 @@ python "$codexHome\skills\.system\plugin-creator\scripts\validate_plugin.py" $re
 claude plugin validate (Get-Location).Path --strict
 ```
 
-最后人工确认：Codex/Claude 能加载对应 manifest、客户端能列出全部 `sanity_blog_*` 工具、写工具保持人工审批、两个技能不会被隐式调用。
+最后人工确认：Codex/Claude 能加载对应 manifest、客户端能列出全部 `sanity_blog_*` 工具、写工具保持人工审批、三个技能不会被隐式调用，并能打开本地 HTML 预览。
 ## 兼容规范
 
 - [MCP stdio transport](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports)

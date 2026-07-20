@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict'
-import {rm} from 'node:fs/promises'
+import {rm, writeFile} from 'node:fs/promises'
 import test from 'node:test'
 
 import {createBlogService} from '../src/service.mjs'
 import {createArticleFixture, makeArticle, responsePayload} from './helpers.mjs'
+
+const ACCEPTED_PREVIEW_REVISION = 'a'.repeat(64)
 
 function queuedFetch(responses, calls) {
   return async (url, options) => {
@@ -21,7 +23,12 @@ function serviceFor(fixture, {
   calls = [],
   records = [],
   recordError,
+  realPreview = false,
 } = {}) {
+  const previewRenderer = async () => ({
+    ok: true,
+    previewRevision: ACCEPTED_PREVIEW_REVISION,
+  })
   return {
     calls,
     records,
@@ -29,6 +36,7 @@ function serviceFor(fixture, {
       loadConfigImpl: async () => fixture.config,
       checkConfigImpl: async () => ({configured: true}),
       fetchImpl: queuedFetch(responses, calls),
+      ...(realPreview ? {} : {previewRenderer}),
       clock: () => new Date('2026-07-18T12:00:00.000Z'),
       recordWriter: async (entry) => {
         if (recordError) throw recordError
@@ -55,7 +63,10 @@ test('publish creates with one dry-run and one final POST from one timestamped s
     ],
   })
 
-  const result = await setup.service.publish(fixture.articlePath)
+  const result = await setup.service.publish(
+    fixture.articlePath,
+    ACCEPTED_PREVIEW_REVISION,
+  )
   assert.equal(result.operation, 'created')
   assert.equal(result.recordPath, 'C:\\records\\example-post.json')
   assert.equal(setup.calls.length, 2)
@@ -86,13 +97,14 @@ test('request layer rejects non-canonical publisher origins before fetch', async
     const calls = []
     const service = createBlogService({
       loadConfigImpl: async () => ({...fixture.config, publisherApiOrigin}),
+      previewRenderer: async () => ({previewRevision: ACCEPTED_PREVIEW_REVISION}),
       fetchImpl: async (url, options) => {
         calls.push({url, options})
         throw new Error('fetch must not run')
       },
     })
     await assert.rejects(
-      service.probePublish(fixture.articlePath),
+      service.probePublish(fixture.articlePath, ACCEPTED_PREVIEW_REVISION),
       (error) => error.code === 'PUBLISHER_ORIGIN_INVALID',
     )
     assert.equal(calls.length, 0)
@@ -120,7 +132,10 @@ test('publish falls back only after a sanitized conflict and binds update id/rev
     ],
   })
 
-  const result = await setup.service.publish(fixture.articlePath)
+  const result = await setup.service.publish(
+    fixture.articlePath,
+    ACCEPTED_PREVIEW_REVISION,
+  )
   assert.equal(result.operation, 'updated')
   assert.deepEqual(setup.calls.map((call) => call.options.method), ['POST', 'PUT', 'PUT'])
   assert.equal(
@@ -153,7 +168,10 @@ test('strict update performs only PUT dry-run plus one guarded PUT and never cre
     ],
   })
 
-  const result = await setup.service.update(fixture.articlePath)
+  const result = await setup.service.update(
+    fixture.articlePath,
+    ACCEPTED_PREVIEW_REVISION,
+  )
   assert.equal(result.operation, 'updated')
   assert.deepEqual(setup.calls.map((call) => call.options.method), ['PUT', 'PUT'])
   assert.ok(setup.calls.every((call) => call.url.includes('/v1/blog-posts/example-post')))
@@ -171,11 +189,73 @@ test('all local validation failures cause zero remote calls', async (t) => {
   const setup = serviceFor(fixture, {responses: []})
 
   await assert.rejects(
-    setup.service.publish(fixture.articlePath),
-    (error) => error.code === 'ARTICLE_SCHEMA_INVALID',
+    setup.service.publish(fixture.articlePath, ACCEPTED_PREVIEW_REVISION),
+    (error) =>
+      error.code === 'ARTICLE_SCHEMA_INVALID' &&
+      Array.isArray(error.issues) &&
+      error.issues.some((issue) => issue.code === 'unrecognized_keys'),
   )
   assert.equal(setup.calls.length, 0)
   assert.equal(setup.records.length, 0)
+})
+
+test('local preview validates and renders without any publisher API request', async (t) => {
+  const fixture = await createArticleFixture({localCover: true})
+  t.after(() => rm(fixture.workspaceRoot, {recursive: true, force: true}))
+  await writeFile(
+    fixture.articlePath.replace(/\.json$/u, '.md'),
+    '# English\n\nPreview body.\n\n# 中文\n\n预览正文。\n',
+    'utf8',
+  )
+  const setup = serviceFor(fixture, {responses: [], realPreview: true})
+
+  const result = await setup.service.preview(fixture.articlePath)
+
+  assert.equal(result.approximate, true)
+  assert.equal(result.markdownRendered, true)
+  assert.equal(setup.calls.length, 0)
+})
+
+test('remote probes and mutations reject a stale accepted preview revision', async (t) => {
+  const fixture = await createArticleFixture()
+  t.after(() => rm(fixture.workspaceRoot, {recursive: true, force: true}))
+  const setup = serviceFor(fixture, {responses: []})
+
+  for (const operation of [
+    () => setup.service.probePublish(fixture.articlePath, 'b'.repeat(64)),
+    () => setup.service.probeUpdate(fixture.articlePath, 'b'.repeat(64)),
+    () => setup.service.publish(fixture.articlePath, 'b'.repeat(64)),
+    () => setup.service.update(fixture.articlePath, 'b'.repeat(64)),
+  ]) {
+    await assert.rejects(
+      operation(),
+      (error) => error.code === 'PREVIEW_REVISION_MISMATCH',
+    )
+  }
+  assert.equal(setup.calls.length, 0)
+})
+
+test('the real preview revision binds Markdown before any remote probe', async (t) => {
+  const fixture = await createArticleFixture({localCover: true})
+  t.after(() => rm(fixture.workspaceRoot, {recursive: true, force: true}))
+  const markdownPath = fixture.articlePath.replace(/\.json$/u, '.md')
+  await writeFile(markdownPath, '# Accepted\n\nOriginal preview.\n', 'utf8')
+  const calls = []
+  const service = createBlogService({
+    loadConfigImpl: async () => fixture.config,
+    fetchImpl: async (url, options) => {
+      calls.push({url, options})
+      throw new Error('fetch must not run for a stale preview')
+    },
+  })
+  const accepted = await service.preview(fixture.articlePath)
+
+  await writeFile(markdownPath, '# Changed\n\nNo longer accepted.\n', 'utf8')
+  await assert.rejects(
+    service.probeUpdate(fixture.articlePath, accepted.previewRevision),
+    (error) => error.code === 'PREVIEW_REVISION_MISMATCH',
+  )
+  assert.equal(calls.length, 0)
 })
 
 test('target and document-id mismatches block records and are never retried', async (t) => {
@@ -198,7 +278,7 @@ test('target and document-id mismatches block records and are never retried', as
     ],
   })
   await assert.rejects(
-    targetSetup.service.publish(fixture.articlePath),
+    targetSetup.service.publish(fixture.articlePath, ACCEPTED_PREVIEW_REVISION),
     (error) => error.code === 'API_RESPONSE_INVALID' && error.resultUnknown === true,
   )
   assert.equal(targetSetup.calls.length, 2)
@@ -219,7 +299,7 @@ test('target and document-id mismatches block records and are never retried', as
     ],
   })
   await assert.rejects(
-    idSetup.service.update(fixture.articlePath),
+    idSetup.service.update(fixture.articlePath, ACCEPTED_PREVIEW_REVISION),
     (error) => error.code === 'API_RESPONSE_INVALID',
   )
   assert.equal(idSetup.calls.length, 2)
@@ -234,7 +314,7 @@ test('timeouts, rate limits, and final network uncertainty have zero automatic r
     responses: [responsePayload({status: 429, errorCode: 'RATE_LIMITED'})],
   })
   await assert.rejects(
-    rateSetup.service.probeUpdate(fixture.articlePath),
+    rateSetup.service.probeUpdate(fixture.articlePath, ACCEPTED_PREVIEW_REVISION),
     (error) => error.code === 'RATE_LIMITED' && error.retryable === false,
   )
   assert.equal(rateSetup.calls.length, 1)
@@ -246,7 +326,7 @@ test('timeouts, rate limits, and final network uncertainty have zero automatic r
     ],
   })
   await assert.rejects(
-    unknownSetup.service.publish(fixture.articlePath),
+    unknownSetup.service.publish(fixture.articlePath, ACCEPTED_PREVIEW_REVISION),
     (error) => error.code === 'NETWORK_RESULT_UNKNOWN' && error.resultUnknown === true,
   )
   assert.equal(unknownSetup.calls.length, 2)
@@ -270,7 +350,7 @@ test('confirmed remote success plus record failure reports partial success witho
   })
 
   await assert.rejects(
-    setup.service.publish(fixture.articlePath),
+    setup.service.publish(fixture.articlePath, ACCEPTED_PREVIEW_REVISION),
     (error) =>
       error.code === 'PUBLISHED_BUT_RECORD_WRITE_FAILED' &&
       error.remoteMutationSucceeded === true &&
@@ -295,7 +375,10 @@ test('multipart requests preserve direct node fetch semantics and reject redirec
     ],
   })
 
-  const result = await setup.service.probePublish(fixture.articlePath)
+  const result = await setup.service.probePublish(
+    fixture.articlePath,
+    ACCEPTED_PREVIEW_REVISION,
+  )
   assert.equal(result.mode, 'create')
   assert.equal(calls.length, 1)
 })

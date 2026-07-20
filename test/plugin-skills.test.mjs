@@ -74,6 +74,9 @@ test('publish skill enforces research, bilingual Portable Text, cover, confirmat
   assert.match(skill, /publisherApiOrigin/u)
   assert.match(skill, /sanity_blog_start_config_setup/u)
   assert.match(skill, /four fields/u)
+  assert.match(skill, /sanity_blog_preview/u)
+  assert.match(skill, /Markdown view/u)
+  assert.match(skill, /previewRevision/u)
   assert.match(skill, /Do not retry/u)
 
   const workflow = skill.slice(skill.indexOf('## Strict workflow'))
@@ -81,6 +84,7 @@ test('publish skill enforces research, bilingual Portable Text, cover, confirmat
     'sanity_blog_check_config',
     'sanity_blog_prepare_publish',
     'sanity_blog_validate',
+    'sanity_blog_preview',
     'sanity_blog_probe_publish',
     'sanity_blog_commit',
     'sanity_blog_publish',
@@ -105,12 +109,16 @@ test('update skill requires local and remote existence and remains PUT-only', as
   assert.match(skill, /publisherApiOrigin/u)
   assert.match(skill, /sanity_blog_start_config_setup/u)
   assert.match(skill, /four fields/u)
+  assert.match(skill, /sanity_blog_preview/u)
+  assert.match(skill, /Markdown view/u)
+  assert.match(skill, /previewRevision/u)
 
   const workflow = skill.slice(skill.indexOf('## Strict workflow'))
   const ordered = [
     'sanity_blog_check_config',
     'sanity_blog_prepare_update',
     'sanity_blog_validate',
+    'sanity_blog_preview',
     'sanity_blog_probe_update',
     'sanity_blog_commit',
     'sanity_blog_update',
@@ -118,6 +126,37 @@ test('update skill requires local and remote existence and remains PUT-only', as
   assert.ok(ordered.every((position) => position >= 0))
   assert.deepEqual([...ordered].sort((left, right) => left - right), ordered)
   assert.doesNotMatch(workflow, /sanity_blog_publish\(/u)
+})
+
+test('preview skill creates, validates, renders, and optionally keeps a local bundle without remote calls', async () => {
+  const skill = await text('skills/sanity-blog-preview/SKILL.md')
+  const agent = await text('skills/sanity-blog-preview/agents/openai.yaml')
+  assert.match(agent, /allow_implicit_invocation:\s*false/u)
+  assert.match(skill, /Markdown/u)
+  assert.match(skill, /strict article JSON/iu)
+  assert.match(skill, /real PNG cover/iu)
+  assert.match(skill, /approximate/u)
+  assert.match(skill, /zero remote requests/iu)
+  assert.match(skill, /previewPath/u)
+  assert.match(skill, /previewRevision/u)
+  assert.match(skill, /not a Git commit/u)
+
+  const workflow = skill.slice(skill.indexOf('## Strict workflow'))
+  const firstPreview = workflow.indexOf('sanity_blog_preview')
+  const commit = workflow.indexOf('sanity_blog_commit')
+  const finalPreview = workflow.lastIndexOf('sanity_blog_preview')
+  const ordered = [
+    workflow.indexOf('sanity_blog_check_config'),
+    workflow.indexOf('sanity_blog_prepare_publish'),
+    workflow.indexOf('sanity_blog_validate'),
+    firstPreview,
+    commit,
+    finalPreview,
+  ]
+  assert.ok(ordered.every((position) => position >= 0))
+  assert.deepEqual([...ordered].sort((left, right) => left - right), ordered)
+  assert.doesNotMatch(workflow, /sanity_blog_probe_(?:publish|update)\(/u)
+  assert.doesNotMatch(workflow, /sanity_blog_(?:publish|update)\(/u)
 })
 
 test('one-click installer and minimal configuration are packaged', async () => {

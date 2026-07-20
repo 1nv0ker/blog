@@ -47,6 +47,44 @@ function cleanStringArray(value, maximumItems = 10) {
   const result = value.slice(0, maximumItems).map((entry) => cleanOptionalString(entry)).filter(Boolean);
   return result.length > 0 ? result : [];
 }
+function sanitizeIssues(value) {
+  if (!Array.isArray(value)) {
+    return void 0;
+  }
+  const issues = [];
+  for (const entry of value.slice(0, 20)) {
+    if (entry === null || typeof entry !== "object" || Array.isArray(entry)) {
+      continue;
+    }
+    const issue = {};
+    const path3 = cleanOptionalString(entry.path, 512);
+    const code = cleanOptionalString(entry.code, 96);
+    const message = cleanOptionalString(entry.message, 512);
+    if (path3 !== void 0) issue.path = path3;
+    if (code !== void 0) issue.code = code;
+    if (message !== void 0) issue.message = message;
+    if (Object.keys(issue).length > 0) issues.push(issue);
+  }
+  return issues.length > 0 ? issues : void 0;
+}
+function sanitizeCommitReceipt(value) {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    return void 0;
+  }
+  if (value.committed !== true) {
+    return void 0;
+  }
+  const receipt = { committed: true };
+  for (const key of ["slug", "reservationId", "mode"]) {
+    const cleaned = cleanOptionalString(value[key]);
+    if (cleaned !== void 0) receipt[key] = cleaned;
+  }
+  for (const key of ["markdownPath", "articlePath", "coverPath"]) {
+    const cleaned = cleanOptionalString(value[key], 4096);
+    if (cleaned !== void 0) receipt[key] = cleaned;
+  }
+  return receipt;
+}
 function sanitizeReceipt(value) {
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
     return void 0;
@@ -100,9 +138,20 @@ var SafeError = class extends Error {
     if (normalized.remoteMutationSucceeded === true) {
       this.remoteMutationSucceeded = true;
     }
+    if (normalized.committed === true) {
+      this.committed = true;
+    }
     const receipt = sanitizeReceipt(normalized.receipt);
     if (receipt !== void 0) {
       this.receipt = receipt;
+    }
+    const issues = sanitizeIssues(normalized.issues);
+    if (issues !== void 0) {
+      this.issues = issues;
+    }
+    const commitReceipt = sanitizeCommitReceipt(normalized.commitReceipt);
+    if (commitReceipt !== void 0) {
+      this.commitReceipt = commitReceipt;
     }
     if (normalized.cause !== void 0) {
       Object.defineProperty(this, "cause", {
@@ -137,8 +186,17 @@ function toSafeErrorResult(error) {
   if (source?.remoteMutationSucceeded === true) {
     payload.remoteMutationSucceeded = true;
   }
+  if (source?.committed === true) {
+    payload.committed = true;
+  }
   if (source?.receipt !== void 0) {
     payload.receipt = source.receipt;
+  }
+  if (Array.isArray(source?.issues)) {
+    payload.issues = source.issues.map((issue) => ({ ...issue }));
+  }
+  if (source?.commitReceipt !== void 0) {
+    payload.commitReceipt = { ...source.commitReceipt };
   }
   return { ok: false, error: payload };
 }

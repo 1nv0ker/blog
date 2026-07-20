@@ -8,7 +8,9 @@ import {Client} from '@modelcontextprotocol/sdk/client/index.js'
 import {InMemoryTransport} from '@modelcontextprotocol/sdk/inMemory.js'
 
 import {SafeError} from '../src/errors.mjs'
+import {ArticleValidationError} from '../src/article.mjs'
 import {createMcpServer} from '../src/server.mjs'
+import {WorkspaceError} from '../src/workspace.mjs'
 
 const EXPECTED_TOOLS = [
   'sanity_blog_check_config',
@@ -16,6 +18,7 @@ const EXPECTED_TOOLS = [
   'sanity_blog_prepare_publish',
   'sanity_blog_prepare_update',
   'sanity_blog_validate',
+  'sanity_blog_preview',
   'sanity_blog_probe_publish',
   'sanity_blog_probe_update',
   'sanity_blog_commit',
@@ -40,6 +43,7 @@ function stubService(overrides = {}) {
     preparePublish: async (baseSlug) => ({ok: true, slug: baseSlug}),
     prepareUpdate: async (slug) => ({ok: true, slug}),
     validate: async () => ({ok: true, valid: true}),
+    preview: async () => ({ok: true, approximate: true}),
     probePublish: async () => ({ok: true, mode: 'create'}),
     probeUpdate: async () => ({ok: true, mode: 'update'}),
     commit: async (slug) => ({ok: true, slug}),
@@ -88,6 +92,46 @@ test('MCP initializes and lists all strict tool schemas with annotations', async
   assert.equal(setup.annotations.readOnlyHint, false)
   assert.equal(setup.annotations.destructiveHint, false)
   assert.equal(setup.annotations.openWorldHint, false)
+  const preview = listed.tools.find((tool) => tool.name === 'sanity_blog_preview')
+  assert.equal(preview.annotations.readOnlyHint, false)
+  assert.equal(preview.annotations.destructiveHint, false)
+  assert.equal(preview.annotations.idempotentHint, true)
+  assert.equal(preview.annotations.openWorldHint, false)
+  for (const name of [
+    'sanity_blog_probe_publish',
+    'sanity_blog_probe_update',
+    'sanity_blog_publish',
+    'sanity_blog_update',
+  ]) {
+    const tool = listed.tools.find((candidate) => candidate.name === name)
+    assert.deepEqual(tool.inputSchema.required, ['articlePath', 'previewRevision'])
+    assert.match(tool.inputSchema.properties.previewRevision.pattern, /\{64\}/u)
+  }
+})
+
+test('MCP forwards the accepted preview revision to remote tools', async (t) => {
+  const previewRevision = 'a'.repeat(64)
+  let received
+  const {client, server} = await connectedPair(
+    stubService({
+      probePublish: async (articlePath, revision) => {
+        received = {articlePath, revision}
+        return {ok: true, mode: 'create', previewRevision: revision}
+      },
+    }),
+  )
+  t.after(async () => {
+    await client.close()
+    await server.close()
+  })
+
+  const articlePath = 'C:\\workspace\\blog\\example-post.json'
+  const result = await client.callTool({
+    name: 'sanity_blog_probe_publish',
+    arguments: {articlePath, previewRevision},
+  })
+  assert.equal(result.isError, undefined)
+  assert.deepEqual(received, {articlePath, revision: previewRevision})
 })
 
 test('MCP configuration setup returns structured launch state without token input', async (t) => {
@@ -158,6 +202,83 @@ test('MCP tool errors are sanitized, dual-format, and marked isError', async (t)
   assert.deepEqual(JSON.parse(result.content[0].text), result.structuredContent)
   assert.equal(result.structuredContent.error.code, 'CONFIG_NOT_FOUND')
   assert.doesNotMatch(result.content[0].text, /secret token|stack/u)
+})
+
+test('MCP validation errors expose only actionable schema issue paths', async (t) => {
+  const {client, server} = await connectedPair(
+    stubService({
+      validate: async () => {
+        throw new ArticleValidationError(
+          'ARTICLE_SCHEMA_INVALID',
+          'Unsafe internal validation context must not escape.',
+          {
+            issues: [
+              {
+                path: 'body.en.0.children',
+                code: 'too_small',
+                message: 'Array must contain at least 1 element(s)',
+              },
+            ],
+          },
+        )
+      },
+    }),
+  )
+  t.after(async () => {
+    await client.close()
+    await server.close()
+  })
+
+  const result = await client.callTool({
+    name: 'sanity_blog_validate',
+    arguments: {articlePath: 'C:\\workspace\\blog\\example-post.json'},
+  })
+  assert.equal(result.isError, true)
+  assert.deepEqual(result.structuredContent.error.issues, [
+    {
+      path: 'body.en.0.children',
+      code: 'too_small',
+      message: 'Array must contain at least 1 element(s)',
+    },
+  ])
+  assert.doesNotMatch(result.content[0].text, /Unsafe internal validation context/u)
+})
+
+test('MCP preserves an explicit committed receipt when reservation cleanup fails', async (t) => {
+  const reservationId = '123e4567-e89b-42d3-a456-426614174000'
+  const receipt = {
+    committed: true,
+    slug: 'example-post',
+    reservationId,
+    mode: 'create',
+    markdownPath: 'C:\\workspace\\blog\\example-post.md',
+    articlePath: 'C:\\workspace\\blog\\example-post.json',
+    coverPath: 'C:\\workspace\\blog\\assets\\example-post-cover.png',
+  }
+  const {client, server} = await connectedPair(
+    stubService({
+      commit: async () => {
+        throw new WorkspaceError(
+          'COMMIT_CLEANUP_FAILED',
+          'Internal cleanup detail must not escape.',
+          receipt,
+        )
+      },
+    }),
+  )
+  t.after(async () => {
+    await client.close()
+    await server.close()
+  })
+
+  const result = await client.callTool({
+    name: 'sanity_blog_commit',
+    arguments: {slug: 'example-post', reservationId},
+  })
+  assert.equal(result.isError, true)
+  assert.equal(result.structuredContent.error.committed, true)
+  assert.deepEqual(result.structuredContent.error.commitReceipt, receipt)
+  assert.doesNotMatch(result.content[0].text, /Internal cleanup detail/u)
 })
 
 test('stdio stdout contains JSON-RPC only', async () => {

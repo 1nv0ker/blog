@@ -1,0 +1,6 @@
+interface:
+  display_name: "Sanity Blog Preview"
+  short_description: "Draft and preview a blog post without publishing"
+  default_prompt: "Use $sanity-blog-preview to draft, validate, and visually preview a bilingual blog post without publishing it."
+policy:
+  allow_implicit_invocation: false

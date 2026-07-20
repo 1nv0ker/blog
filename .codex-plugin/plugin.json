@@ -1,7 +1,7 @@
 {
   "name": "sanityblog",
-  "version": "0.1.0+codex.20260718150921",
-  "description": "Safely validate, publish, and update blog content through a local stdio MCP server.",
+  "version": "0.1.0+codex.20260720151212",
+  "description": "Safely draft, visually preview, publish, and update blog content through a local stdio MCP server.",
   "author": {
     "name": "Local developer"
   },
@@ -23,8 +23,8 @@
   },
   "interface": {
     "displayName": "Sanity Blog",
-    "shortDescription": "Publish and update blog content with explicit safety checks",
-    "longDescription": "Two explicit workflows for validating, publishing, and updating blog content through a local MCP server, with durable receipts and partial-success handling.",
+    "shortDescription": "Preview, publish, and update blog content safely",
+    "longDescription": "Three explicit workflows for locally previewing, publishing, and updating bilingual blog content through a local MCP server, with safe HTML rendering, durable receipts, and partial-success handling.",
     "category": "Productivity",
     "developerName": "Local developer",
     "capabilities": [
@@ -32,7 +32,7 @@
       "Write"
     ],
     "defaultPrompt": [
-      "Use Sanity Blog Publish or Sanity Blog Update to safely apply this blog operation."
+      "Use Sanity Blog Preview, Sanity Blog Publish, or Sanity Blog Update for the requested blog workflow."
     ]
   }
 }

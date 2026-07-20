@@ -454,6 +454,40 @@ test("commit atomically promotes a complete create staging bundle", async () => 
   await assert.rejects(readFile(prepared.articlePath), { code: "ENOENT" });
 });
 
+test("commit cleanup failure reports a trustworthy committed receipt", async () => {
+  const config = await makeWorkspace();
+  const prepared = await preparePublish({ baseSlug: "cleanup-warning", config });
+  await writeBundle(prepared, "cleanup-warning", "committed");
+  const destination = livePaths(config, "cleanup-warning");
+
+  await assert.rejects(
+    commitReservation({
+      slug: "cleanup-warning",
+      reservationId: prepared.reservationId,
+      config,
+      cleanupOps: {
+        async rm() {
+          throw new Error("injected cleanup failure");
+        },
+      },
+    }),
+    (error) => {
+      assert.equal(error instanceof WorkspaceError, true);
+      assert.equal(error.code, "COMMIT_CLEANUP_FAILED");
+      assert.deepEqual(error.details, {
+        committed: true,
+        slug: "cleanup-warning",
+        reservationId: prepared.reservationId,
+        mode: "create",
+        ...destination,
+      });
+      return true;
+    },
+  );
+
+  assert.match((await readBundle(destination)).markdown, /committed/);
+});
+
 test("a mid-commit failure rolls back live files and keeps staging retryable", async () => {
   const config = await makeWorkspace();
   const paths = livePaths(config, "rollback-post");

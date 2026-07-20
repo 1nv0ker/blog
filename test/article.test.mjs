@@ -24,6 +24,7 @@ test('validates a local article and materializes immutable create/update bodies'
   })
   assert.equal(snapshot.slug, 'example-post')
   assert.equal(snapshot.localImageCount, 1)
+  assert.match(snapshot.contentSha256, /^[0-9a-f]{64}$/u)
 
   const publishedAt = '2026-07-18T12:00:00.000Z'
   const createRequest = materializeArticleRequest(snapshot, {createPublishedAt: publishedAt})
@@ -65,7 +66,7 @@ test('rejects image bytes that do not match the declared extension', async (t) =
   )
 })
 
-test('enforces article, individual asset, count, and total request limits', async (t) => {
+test('enforces article and cover limits and rejects local Portable Text images', async (t) => {
   const oversizedArticle = makeArticle()
   oversizedArticle.body.en[0].children[0].text = 'a'.repeat(MAX_ARTICLE_BYTES)
   const articleFixture = await createArticleFixture({article: oversizedArticle})
@@ -88,37 +89,18 @@ test('enforces article, individual asset, count, and total request limits', asyn
     (error) => error.code === 'ASSET_SIZE_INVALID',
   )
 
-  const tooMany = makeArticle()
-  tooMany.body.en = Array.from({length: 11}, (_, index) => ({
+  const localBodyImage = makeArticle()
+  localBodyImage.body.en = [{
     _type: 'image',
-    source: {path: `./assets/image-${index}.png`},
-    alt: `Image ${index}`,
-  }))
-  const countFixture = await createArticleFixture({article: tooMany})
-  t.after(() => rm(countFixture.workspaceRoot, {recursive: true, force: true}))
+    source: {path: './assets/body.png'},
+    alt: 'A local body image that the three-file bundle cannot commit',
+  }]
+  const bodyFixture = await createArticleFixture({article: localBodyImage})
+  t.after(() => rm(bodyFixture.workspaceRoot, {recursive: true, force: true}))
   await assert.rejects(
-    prepareArticleSnapshot(countFixture.articlePath, {config: countFixture.config}),
-    (error) => error.code === 'ASSET_COUNT_EXCEEDED',
-  )
-
-  const totalArticle = makeArticle()
-  totalArticle.body.en = []
-  for (let index = 0; index < 4; index += 1) {
-    totalArticle.body.en.push({
-      _type: 'image',
-      source: {path: `./assets/large-${index}.png`},
-      alt: `Large image ${index}`,
-    })
-  }
-  const totalFixture = await createArticleFixture({article: totalArticle})
-  t.after(() => rm(totalFixture.workspaceRoot, {recursive: true, force: true}))
-  const largeImage = Buffer.alloc(17 * 1024 * 1024)
-  PNG_BYTES.copy(largeImage)
-  for (let index = 0; index < 4; index += 1) {
-    await writeFile(path.join(totalFixture.assetsRoot, `large-${index}.png`), largeImage)
-  }
-  await assert.rejects(
-    prepareArticleSnapshot(totalFixture.articlePath, {config: totalFixture.config}),
-    (error) => error.code === 'REQUEST_SIZE_EXCEEDED',
+    prepareArticleSnapshot(bodyFixture.articlePath, {config: bodyFixture.config}),
+    (error) =>
+      error.code === 'ARTICLE_SCHEMA_INVALID' &&
+      error.details?.issues?.some((issue) => issue.path === 'body.en.0'),
   )
 })

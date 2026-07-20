@@ -45,7 +45,10 @@ test('MCP preserves the safe receipt when publication succeeded but record writi
 
   const result = await client.callTool({
     name: 'sanity_blog_publish',
-    arguments: {articlePath: 'C:\\workspace\\blog\\example-post.json'},
+    arguments: {
+      articlePath: 'C:\\workspace\\blog\\example-post.json',
+      previewRevision: 'a'.repeat(64),
+    },
   })
   assert.equal(result.isError, true)
   assert.equal(

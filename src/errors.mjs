@@ -26,6 +26,46 @@ function cleanStringArray(value, maximumItems = 10) {
   return result.length > 0 ? result : [];
 }
 
+function sanitizeIssues(value) {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+  const issues = [];
+  for (const entry of value.slice(0, 20)) {
+    if (entry === null || typeof entry !== "object" || Array.isArray(entry)) {
+      continue;
+    }
+    const issue = {};
+    const path = cleanOptionalString(entry.path, 512);
+    const code = cleanOptionalString(entry.code, 96);
+    const message = cleanOptionalString(entry.message, 512);
+    if (path !== undefined) issue.path = path;
+    if (code !== undefined) issue.code = code;
+    if (message !== undefined) issue.message = message;
+    if (Object.keys(issue).length > 0) issues.push(issue);
+  }
+  return issues.length > 0 ? issues : undefined;
+}
+
+function sanitizeCommitReceipt(value) {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+  if (value.committed !== true) {
+    return undefined;
+  }
+  const receipt = { committed: true };
+  for (const key of ["slug", "reservationId", "mode"]) {
+    const cleaned = cleanOptionalString(value[key]);
+    if (cleaned !== undefined) receipt[key] = cleaned;
+  }
+  for (const key of ["markdownPath", "articlePath", "coverPath"]) {
+    const cleaned = cleanOptionalString(value[key], 4096);
+    if (cleaned !== undefined) receipt[key] = cleaned;
+  }
+  return receipt;
+}
+
 function sanitizeReceipt(value) {
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
     return undefined;
@@ -98,9 +138,23 @@ export class SafeError extends Error {
       this.remoteMutationSucceeded = true;
     }
 
+    if (normalized.committed === true) {
+      this.committed = true;
+    }
+
     const receipt = sanitizeReceipt(normalized.receipt);
     if (receipt !== undefined) {
       this.receipt = receipt;
+    }
+
+    const issues = sanitizeIssues(normalized.issues);
+    if (issues !== undefined) {
+      this.issues = issues;
+    }
+
+    const commitReceipt = sanitizeCommitReceipt(normalized.commitReceipt);
+    if (commitReceipt !== undefined) {
+      this.commitReceipt = commitReceipt;
     }
 
     if (normalized.cause !== undefined) {
@@ -138,8 +192,17 @@ export function toSafeErrorResult(error) {
   if (source?.remoteMutationSucceeded === true) {
     payload.remoteMutationSucceeded = true;
   }
+  if (source?.committed === true) {
+    payload.committed = true;
+  }
   if (source?.receipt !== undefined) {
     payload.receipt = source.receipt;
+  }
+  if (Array.isArray(source?.issues)) {
+    payload.issues = source.issues.map((issue) => ({ ...issue }));
+  }
+  if (source?.commitReceipt !== undefined) {
+    payload.commitReceipt = { ...source.commitReceipt };
   }
 
   return { ok: false, error: payload };

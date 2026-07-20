@@ -70,10 +70,14 @@ function safeLinkHref(value) {
   }
 }
 
-const imageSource = z.union([
+const coverImageSource = z.union([
   z.object({path: z.string().regex(SAFE_ASSET_PATH)}).strict(),
   z.object({assetRef: z.string().regex(SAFE_ASSET_REF)}).strict(),
 ])
+
+const portableTextImageSource = z
+  .object({assetRef: z.string().regex(SAFE_ASSET_REF)})
+  .strict()
 
 const imageCrop = z
   .object({
@@ -157,7 +161,7 @@ const portableTextImage = z
   .object({
     _type: z.literal('image'),
     _key: portableTextKey.optional(),
-    source: imageSource,
+    source: portableTextImageSource,
     alt: nonBlank(500),
     crop: imageCrop.optional(),
     hotspot: imageHotspot.optional(),
@@ -182,7 +186,7 @@ const portableTextItem = z.union([
 
 const coverImage = z
   .object({
-    source: imageSource,
+    source: coverImageSource,
     alt: localizedString(500),
     crop: imageCrop.optional(),
     hotspot: imageHotspot.optional(),
@@ -450,6 +454,16 @@ export async function prepareArticleSnapshot(articlePath, {config} = {}) {
   const articleInfo = await inspectArticleFile(articlePath, config)
   const assets = await inspectAssets(articleInfo)
   const article = deepFreeze(structuredClone(articleInfo.article))
+  const contentHash = createHash('sha256')
+  contentHash.update('article\0')
+  contentHash.update(articleInfo.articleBytes)
+  for (const asset of [...assets].sort((left, right) => left.filename.localeCompare(right.filename))) {
+    contentHash.update('\0asset\0')
+    contentHash.update(asset.filename)
+    contentHash.update('\0')
+    contentHash.update(asset.sha256)
+  }
+  const contentSha256 = contentHash.digest('hex')
   const state = {
     article,
     articleBytes: Buffer.from(articleInfo.articleBytes),
@@ -461,6 +475,7 @@ export async function prepareArticleSnapshot(articlePath, {config} = {}) {
     articlePath: articleInfo.articlePath,
     slug: article.slug,
     sha256: createHash('sha256').update(articleInfo.articleBytes).digest('hex'),
+    contentSha256,
     localImageCount: assets.length,
     totalAssetBytes: assets.reduce((sum, asset) => sum + asset.size, 0),
   })
@@ -531,6 +546,7 @@ export function describeArticleSnapshot(snapshot) {
     slug: snapshot.slug,
     articlePath: snapshot.articlePath,
     sha256: snapshot.sha256,
+    contentSha256: snapshot.contentSha256,
     bodyBlocks: {
       en: snapshot.article.body.en.length,
       zh: snapshot.article.body.zh.length,
@@ -544,4 +560,17 @@ export function cloneRequestArticle(snapshot, {forUpdate = false, createPublishe
   return structuredClone(
     materializeArticleRequest(snapshot, {forUpdate, createPublishedAt}).article,
   )
+}
+
+export function materializeArticlePreviewAssets(snapshot) {
+  const state = snapshotState.get(snapshot)
+  if (!state) {
+    throw new ArticleValidationError('ARTICLE_SNAPSHOT_INVALID', 'The article snapshot is invalid.')
+  }
+  return state.assets.map((asset) => Object.freeze({
+    sourcePath: `./assets/${asset.filename}`,
+    mimeType: asset.mimeType,
+    bytes: Buffer.from(asset.bytes),
+    sha256: asset.sha256,
+  }))
 }

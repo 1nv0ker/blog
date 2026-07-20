@@ -2,7 +2,7 @@
   "name": "sanityblog",
   "version": "0.1.0",
   "private": true,
-  "description": "Local stdio MCP server and explicit Agent Skills for safe Sanity blog publishing.",
+  "description": "Local stdio MCP server and explicit Agent Skills for safe Sanity blog previewing, publishing, and updating.",
   "type": "module",
   "engines": {
     "node": ">=22.12"

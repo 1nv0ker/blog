@@ -5,6 +5,8 @@ import test from 'node:test'
 import {createBlogService} from '../src/service.mjs'
 import {createArticleFixture, responsePayload} from './helpers.mjs'
 
+const PREVIEW_REVISION = 'a'.repeat(64)
+
 test('5xx and non-whitelisted 409 responses never retry or switch methods', async (t) => {
   const fixture = await createArticleFixture()
   t.after(() => rm(fixture.workspaceRoot, {recursive: true, force: true}))
@@ -16,12 +18,13 @@ test('5xx and non-whitelisted 409 responses never retry or switch methods', asyn
     const calls = []
     const service = createBlogService({
       loadConfigImpl: async () => fixture.config,
+      previewRenderer: async () => ({previewRevision: PREVIEW_REVISION}),
       fetchImpl: async (url, options) => {
         calls.push({url, options})
         return response
       },
     })
-    await assert.rejects(service.probePublish(fixture.articlePath))
+    await assert.rejects(service.probePublish(fixture.articlePath, PREVIEW_REVISION))
     assert.equal(calls.length, 1)
     assert.equal(calls[0].options.method, 'POST')
   }

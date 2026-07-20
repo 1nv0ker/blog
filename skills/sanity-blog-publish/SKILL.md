@@ -15,10 +15,11 @@ Use only the exact schemas exposed by the `sanityblog` MCP server:
 - `sanity_blog_start_config_setup({})`
 - `sanity_blog_prepare_publish({baseSlug})`
 - `sanity_blog_validate({articlePath})`
-- `sanity_blog_probe_publish({articlePath})`
+- `sanity_blog_preview({articlePath})`
+- `sanity_blog_probe_publish({articlePath, previewRevision})`
 - `sanity_blog_commit({slug, reservationId})`
 - `sanity_blog_release({slug, reservationId})`
-- `sanity_blog_publish({articlePath})`
+- `sanity_blog_publish({articlePath, previewRevision})`
 
 All input schemas reject additional properties. Never invent an argument, reuse an identifier from another attempt, or replace an MCP call with a direct HTTP request.
 
@@ -30,6 +31,8 @@ All input schemas reject additional properties. Never invent an argument, reuse 
 - Never expose, copy, summarize, or log tokens, request headers, raw response bodies, stack traces, or configuration contents other than the safe `publisherApiOrigin` returned by `sanity_blog_check_config`; show that origin only as the remote publication destination.
 - Never edit outside the staging paths returned by `sanity_blog_prepare_publish`.
 - Treat `articlePath`, `markdownPath`, `coverPath`, slug, `reservationId`, target, mode, and revision as attempt-scoped values.
+- Require a successful local JSON-and-Markdown HTML preview and user review before any remote probe.
+- Pass the exact user-accepted `previewRevision` to both `sanity_blog_probe_publish` and `sanity_blog_publish`; both tools must verify it against the current bundle and refuse a mismatch before any remote request.
 - Never retry POST or PUT after a timeout, unknown outcome, or `remoteMutationSucceeded: true`.
 - Permit create-to-update behavior only when `sanity_blog_probe_publish` reports its explicit conflict-driven `mode: update`. Never infer a conflict from a timeout, transport error, or generic API error.
 - Do not call `sanity_blog_update` from this skill.
@@ -60,6 +63,7 @@ Build a complete three-file bundle at the exact staging paths returned by prepar
 - Convert both language bodies into valid `body.en` and `body.zh` Portable Text arrays using only supported `block`, `image`, and `code` items. Put links in safe `link` `markDefs` and make span marks reference their keys.
 - Populate localized `{en, zh}` values for `title`, `excerpt`, `seo.title`, and `seo.description`.
 - Set `coverImage.source.path` to `./assets/<slug>-cover.png` and provide non-blank `coverImage.alt.en` and `coverImage.alt.zh`.
+- Do not create, reference, or upload any other local body image. The current workspace commit promotes only Markdown, JSON, and the returned PNG cover. Every body `image` item must use an existing Sanity `assetRef`; never use a local path, `source.path`, or a remote image URL, and omit the item when no existing asset reference is available.
 
 Create complete English and Chinese Markdown content:
 
@@ -95,7 +99,7 @@ End each language body with its own localized source section:
 
 ## Cover image gate
 
-A valid cover is mandatory. Never publish with a missing cover, placeholder, broken image, SVG-only asset, or JPEG renamed to `.png`.
+A valid cover is mandatory. Never publish with a missing cover, placeholder, broken image, SVG-only asset, or JPEG renamed to `.png`. Use 1200×630 unless the user or target requirements specify another supported size.
 
 If an image-generation capability is available:
 
@@ -107,6 +111,14 @@ If an image-generation capability is available:
 
 If no image-generation capability is available, pause before validation and ask the user to provide a compliant PNG for the exact `coverPath`. Accept a user-provided image only when the user owns it or confirms appropriate rights and it passes the same format, dimension, and visual checks. Never continue to probe, commit, or publish without a validated cover.
 
+## Local preview gate
+
+After local validation and before any remote probe, call `sanity_blog_preview({articlePath})`. It writes a safe `<slug>.preview.html` beside the staged JSON, renders the validated JSON payload and a separate safe Markdown view, embeds validated local-image bytes instead of retaining source-file references, and makes zero remote requests. An existing HTML preview therefore cannot drift if the source cover changes later; regenerating it reads the new bytes and changes `previewRevision`.
+
+Open the returned `previewUrl` with an available browser or visual inspection capability. Inspect English, Chinese, the embedded cover, remote `assetRef` placeholders, links, code blocks, source sections, and SEO cards. If no browser capability is available, provide the exact `previewPath` and state that the file was generated but not visually inspected.
+
+Let the user request edits at this stage. After every edit, validate and preview again. Do not call `sanity_blog_probe_publish` until the user accepts the current visual preview. Capture the exact accepted `previewRevision`, which binds the JSON, Markdown, and validated local-cover bytes. Treat the preview as approximate because the production theme and components can differ. Publishing still uses the article JSON payload, so resolve any visible Markdown/JSON mismatch before probing.
+
 ## Strict workflow
 
 1. Confirm that the user explicitly wants to publish. Collect the intended base slug, audience, purpose, bilingual scope, target profile, and cover requirements. Resolve ambiguity before preparing an attempt.
@@ -115,23 +127,25 @@ If no image-generation capability is available, pause before validation and ask 
 4. Call `sanity_blog_prepare_publish({baseSlug})` once. Capture every returned staging path and attempt identifier. Stop if `articlePath`, `markdownPath`, `coverPath`, slug, or `reservationId` is missing.
 5. Write the complete English and Chinese Markdown at the returned `markdownPath` and explicitly generate the corresponding strict JSON at the returned `articlePath`. Convert both bodies to valid Portable Text arrays, populate localized title/excerpt/SEO fields, and end the English and Chinese bodies with linked `## Sources` and `## 来源` sections.
 6. Generate or obtain the compliant PNG at the returned `coverPath`. Stop if the cover gate cannot be satisfied.
-7. Call `sanity_blog_validate({articlePath})`. Fix only staged content and validate again until it succeeds. Do not probe while validation fails.
-8. Call `sanity_blog_probe_publish({articlePath})` once for the current snapshot. The tool owns the dry-run behavior:
+7. Call `sanity_blog_validate({articlePath})`. Fix only staged content and validate again until it succeeds. Do not preview or probe while validation fails.
+8. Call `sanity_blog_preview({articlePath})`. Open and inspect the returned HTML, present its path and approximation warnings, and let the user request edits. After every change, repeat validation and preview. Continue only after the user accepts the current preview, then freeze and record its exact `previewRevision`.
+9. Call `sanity_blog_probe_publish({articlePath, previewRevision})` once, passing the exact revision from the user-accepted preview. The tool must verify the current bundle against that revision before any remote request. It then owns the dry-run behavior:
    - `mode: create` means the request layer will write the current UTC `publishedAt` for this same attempt.
    - `mode: update` is valid only when the tool observed an explicit POST conflict and internally completed the PUT dry-run. The request layer automatically omits `publishedAt` in this mode.
    - Any other, ambiguous, or failed outcome must stop the workflow.
-9. Freeze all staged files immediately after a successful probe. Do not modify the article, Markdown, cover, metadata, or source list after probing. If anything must change, do not reuse the probe result: release when safe, prepare a new attempt, validate it, and probe again.
-10. Immediately before the final review, call `sanity_blog_check_config({})` again. If `publisherApiOrigin` or the Sanity target differs from the initial check or successful probe, stop, release only when safe, and start a new attempt. Present the final review with the exact publisher API origin, mode, target project/dataset/API version, slug, bilingual title and summary, material claims and sources, SEO fields, cover preview/path, and the fact that one remote mutation will follow. Ask for explicit confirmation immediately before the write sequence.
-11. If the user declines before any remote mutation, call `sanity_blog_release({slug, reservationId})` only when the tool state says release is safe.
-12. After confirmation, call `sanity_blog_commit({slug, reservationId})`. Capture the commit result. It is the only authoritative source of the final `articlePath`, `markdownPath`, and `coverPath`.
-13. Call `sanity_blog_publish({articlePath})` exactly once using the final `articlePath` returned by commit, never the pre-commit path. The final tool internally repeats the dry-run and binds the revision before the write; do not add another probe or direct request.
-14. Preserve commit's final `markdownPath` and `coverPath` for the completion report. Verify and report the safe result fields: `status`, `id`, `revision`, `slug`, `requestId`, `uploadedAssetIds`, target, operation, and `recordPath`.
+10. Freeze all staged article files immediately after a successful probe. Do not modify the article, Markdown, cover, metadata, or source list after probing. Regenerating HTML with `sanity_blog_preview` is allowed only because it revalidates and does not alter the frozen three-file bundle. If any bundle content must change, do not reuse the probe result: release when safe, prepare a new attempt, validate it, preview it, and probe again.
+11. Immediately before the final review, call `sanity_blog_check_config({})` again. If `publisherApiOrigin` or the Sanity target differs from the initial check or successful probe, stop, release only when safe, and start a new attempt. Present the final review with the exact publisher API origin, mode, target project/dataset/API version, slug, bilingual title and summary, material claims and sources, SEO fields, accepted preview path, cover preview/path, and the fact that one remote mutation will follow. Ask for explicit confirmation immediately before the write sequence.
+12. If the user declines before any remote mutation, call `sanity_blog_release({slug, reservationId})` only when the tool state says release is safe.
+13. After confirmation, call `sanity_blog_commit({slug, reservationId})`. On normal success, capture its authoritative final `articlePath`, `markdownPath`, and `coverPath`. If it returns or throws `COMMIT_CLEANUP_FAILED` with explicit `committed: true`, the local commit completed: never retry commit. Attempt one safe `sanity_blog_release({slug, reservationId})` solely to remove the stale reservation, then continue from the authoritative final paths carried by the commit result or error; if release still fails, report the stale reservation but do not roll back or retry commit. If `committed` is absent, false, or ambiguous, or authoritative final paths are unavailable, stop without publishing.
+14. The staged HTML is removed by commit. Call `sanity_blog_preview({articlePath})` once using the authoritative final `articlePath` to persist the accepted preview beside the canonical bundle. Do not edit the bundle. Require the final `previewRevision` to exactly match the accepted staging revision; on a mismatch, stop without publishing. Preserve the returned final `previewPath`.
+15. Call `sanity_blog_publish({articlePath, previewRevision})` exactly once using the final `articlePath` returned by commit, or the equivalent authoritative final path carried by a confirmed committed cleanup failure, together with the same user-accepted `previewRevision`. Never use the pre-commit path or a newly substituted revision. The final tool must verify the canonical bundle against that revision before any remote request, then internally repeat the dry-run and bind the remote revision before the write; do not add another probe or direct request.
+16. Preserve commit's final `markdownPath` and `coverPath` and the final `previewPath` for the completion report. Verify and report the safe result fields: `status`, `id`, `revision`, `slug`, `requestId`, `uploadedAssetIds`, target, operation, and `recordPath`.
 
 ## Outcome handling
 
 ### Confirmed success
 
-Report the actual operation (`created` or conflict-driven `updated`), ID, revision, slug, target, uploaded asset IDs, commit's final article/Markdown/cover paths, and `recordPath`. State that the local publication record is the latest confirmed success for that slug.
+Report the actual operation (`created` or conflict-driven `updated`), ID, revision, slug, target, uploaded asset IDs, commit's final article/Markdown/cover paths, final HTML preview path, and `recordPath`. State that the local publication record is the latest confirmed success for that slug.
 
 ### Remote success but local record failure
 
@@ -143,4 +157,4 @@ On timeout, cancellation, connection loss, malformed response, or any result tha
 
 ### Pre-write failure
 
-For configuration, preparation, research, content, cover, validation, probe, confirmation, or commit failures known to occur before a remote mutation, stop. Release the reservation only when the returned state explicitly makes that safe.
+For configuration, preparation, research, content, cover, validation, preview, probe, confirmation, or commit failures known to occur before a remote mutation, stop. Release the reservation only when the returned state explicitly makes that safe. Handle `COMMIT_CLEANUP_FAILED` with explicit `committed: true` as the narrow exception described above: local commit is complete, commit must not be retried, one safe release cleanup may be attempted, and the workflow may continue only with authoritative final paths. If final preview regeneration fails after commit, do not publish and do not release; report that the local bundle was committed but its persistent HTML preview was not generated.

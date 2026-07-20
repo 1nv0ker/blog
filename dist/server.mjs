@@ -3225,8 +3225,8 @@ var require_utils = __commonJS({
       }
       return ind;
     }
-    function removeDotSegments(path7) {
-      let input = path7;
+    function removeDotSegments(path8) {
+      let input = path8;
       const output = [];
       let nextSlash = -1;
       let len = 0;
@@ -3478,8 +3478,8 @@ var require_schemes = __commonJS({
         wsComponent.secure = void 0;
       }
       if (wsComponent.resourceName) {
-        const [path7, query] = wsComponent.resourceName.split("?");
-        wsComponent.path = path7 && path7 !== "/" ? path7 : void 0;
+        const [path8, query] = wsComponent.resourceName.split("?");
+        wsComponent.path = path8 && path8 !== "/" ? path8 : void 0;
         wsComponent.query = query;
         wsComponent.resourceName = void 0;
       }
@@ -6886,7 +6886,7 @@ var require_dist = __commonJS({
 });
 
 // src/server.mjs
-import path6 from "node:path";
+import path7 from "node:path";
 import { fileURLToPath as fileURLToPath2 } from "node:url";
 
 // node_modules/zod/v3/external.js
@@ -7367,8 +7367,8 @@ function getErrorMap() {
 
 // node_modules/zod/v3/helpers/parseUtil.js
 var makeIssue = (params) => {
-  const { data, path: path7, errorMaps, issueData } = params;
-  const fullPath = [...path7, ...issueData.path || []];
+  const { data, path: path8, errorMaps, issueData } = params;
+  const fullPath = [...path8, ...issueData.path || []];
   const fullIssue = {
     ...issueData,
     path: fullPath
@@ -7484,11 +7484,11 @@ var errorUtil;
 
 // node_modules/zod/v3/types.js
 var ParseInputLazyPath = class {
-  constructor(parent, value, path7, key) {
+  constructor(parent, value, path8, key) {
     this._cachedPath = [];
     this.parent = parent;
     this.data = value;
-    this._path = path7;
+    this._path = path8;
     this._key = key;
   }
   get path() {
@@ -11126,10 +11126,10 @@ function assignProp(target, prop, value) {
     configurable: true
   });
 }
-function getElementAtPath(obj, path7) {
-  if (!path7)
+function getElementAtPath(obj, path8) {
+  if (!path8)
     return obj;
-  return path7.reduce((acc, key) => acc?.[key], obj);
+  return path8.reduce((acc, key) => acc?.[key], obj);
 }
 function promiseAllObject(promisesObj) {
   const keys = Object.keys(promisesObj);
@@ -11449,11 +11449,11 @@ function aborted(x, startIndex = 0) {
   }
   return false;
 }
-function prefixIssues(path7, issues) {
+function prefixIssues(path8, issues) {
   return issues.map((iss) => {
     var _a;
     (_a = iss).path ?? (_a.path = []);
-    iss.path.unshift(path7);
+    iss.path.unshift(path8);
     return iss;
   });
 }
@@ -21130,6 +21130,44 @@ function cleanStringArray(value, maximumItems = 10) {
   const result = value.slice(0, maximumItems).map((entry) => cleanOptionalString(entry)).filter(Boolean);
   return result.length > 0 ? result : [];
 }
+function sanitizeIssues(value) {
+  if (!Array.isArray(value)) {
+    return void 0;
+  }
+  const issues = [];
+  for (const entry of value.slice(0, 20)) {
+    if (entry === null || typeof entry !== "object" || Array.isArray(entry)) {
+      continue;
+    }
+    const issue2 = {};
+    const path8 = cleanOptionalString(entry.path, 512);
+    const code = cleanOptionalString(entry.code, 96);
+    const message = cleanOptionalString(entry.message, 512);
+    if (path8 !== void 0) issue2.path = path8;
+    if (code !== void 0) issue2.code = code;
+    if (message !== void 0) issue2.message = message;
+    if (Object.keys(issue2).length > 0) issues.push(issue2);
+  }
+  return issues.length > 0 ? issues : void 0;
+}
+function sanitizeCommitReceipt(value) {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    return void 0;
+  }
+  if (value.committed !== true) {
+    return void 0;
+  }
+  const receipt = { committed: true };
+  for (const key of ["slug", "reservationId", "mode"]) {
+    const cleaned = cleanOptionalString(value[key]);
+    if (cleaned !== void 0) receipt[key] = cleaned;
+  }
+  for (const key of ["markdownPath", "articlePath", "coverPath"]) {
+    const cleaned = cleanOptionalString(value[key], 4096);
+    if (cleaned !== void 0) receipt[key] = cleaned;
+  }
+  return receipt;
+}
 function sanitizeReceipt(value) {
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
     return void 0;
@@ -21183,9 +21221,20 @@ var SafeError = class extends Error {
     if (normalized.remoteMutationSucceeded === true) {
       this.remoteMutationSucceeded = true;
     }
+    if (normalized.committed === true) {
+      this.committed = true;
+    }
     const receipt = sanitizeReceipt(normalized.receipt);
     if (receipt !== void 0) {
       this.receipt = receipt;
+    }
+    const issues = sanitizeIssues(normalized.issues);
+    if (issues !== void 0) {
+      this.issues = issues;
+    }
+    const commitReceipt = sanitizeCommitReceipt(normalized.commitReceipt);
+    if (commitReceipt !== void 0) {
+      this.commitReceipt = commitReceipt;
     }
     if (normalized.cause !== void 0) {
       Object.defineProperty(this, "cause", {
@@ -21220,8 +21269,17 @@ function toSafeErrorResult(error2) {
   if (source?.remoteMutationSucceeded === true) {
     payload.remoteMutationSucceeded = true;
   }
+  if (source?.committed === true) {
+    payload.committed = true;
+  }
   if (source?.receipt !== void 0) {
     payload.receipt = source.receipt;
+  }
+  if (Array.isArray(source?.issues)) {
+    payload.issues = source.issues.map((issue2) => ({ ...issue2 }));
+  }
+  if (source?.commitReceipt !== void 0) {
+    payload.commitReceipt = { ...source.commitReceipt };
   }
   return { ok: false, error: payload };
 }
@@ -22025,10 +22083,11 @@ function safeLinkHref(value) {
     return false;
   }
 }
-var imageSource = external_exports.union([
+var coverImageSource = external_exports.union([
   external_exports.object({ path: external_exports.string().regex(SAFE_ASSET_PATH) }).strict(),
   external_exports.object({ assetRef: external_exports.string().regex(SAFE_ASSET_REF) }).strict()
 ]);
+var portableTextImageSource = external_exports.object({ assetRef: external_exports.string().regex(SAFE_ASSET_REF) }).strict();
 var imageCrop = external_exports.object({
   _type: external_exports.literal("sanity.imageCrop").optional(),
   top: external_exports.number().min(0).max(1),
@@ -22094,7 +22153,7 @@ var portableTextBlock = external_exports.object({
 var portableTextImage = external_exports.object({
   _type: external_exports.literal("image"),
   _key: portableTextKey.optional(),
-  source: imageSource,
+  source: portableTextImageSource,
   alt: nonBlank(500),
   crop: imageCrop.optional(),
   hotspot: imageHotspot.optional()
@@ -22112,7 +22171,7 @@ var portableTextItem = external_exports.union([
   portableTextCode
 ]);
 var coverImage = external_exports.object({
-  source: imageSource,
+  source: coverImageSource,
   alt: localizedString(500),
   crop: imageCrop.optional(),
   hotspot: imageHotspot.optional()
@@ -22351,6 +22410,16 @@ async function prepareArticleSnapshot(articlePath2, { config: config2 } = {}) {
   const articleInfo = await inspectArticleFile(articlePath2, config2);
   const assets = await inspectAssets(articleInfo);
   const article = deepFreeze(structuredClone(articleInfo.article));
+  const contentHash = createHash("sha256");
+  contentHash.update("article\0");
+  contentHash.update(articleInfo.articleBytes);
+  for (const asset of [...assets].sort((left, right) => left.filename.localeCompare(right.filename))) {
+    contentHash.update("\0asset\0");
+    contentHash.update(asset.filename);
+    contentHash.update("\0");
+    contentHash.update(asset.sha256);
+  }
+  const contentSha256 = contentHash.digest("hex");
   const state = {
     article,
     articleBytes: Buffer.from(articleInfo.articleBytes),
@@ -22362,6 +22431,7 @@ async function prepareArticleSnapshot(articlePath2, { config: config2 } = {}) {
     articlePath: articleInfo.articlePath,
     slug: article.slug,
     sha256: createHash("sha256").update(articleInfo.articleBytes).digest("hex"),
+    contentSha256,
     localImageCount: assets.length,
     totalAssetBytes: assets.reduce((sum, asset) => sum + asset.size, 0)
   });
@@ -22422,6 +22492,7 @@ function describeArticleSnapshot(snapshot) {
     slug: snapshot.slug,
     articlePath: snapshot.articlePath,
     sha256: snapshot.sha256,
+    contentSha256: snapshot.contentSha256,
     bodyBlocks: {
       en: snapshot.article.body.en.length,
       zh: snapshot.article.body.zh.length
@@ -22429,6 +22500,18 @@ function describeArticleSnapshot(snapshot) {
     localImageCount: snapshot.localImageCount,
     totalAssetBytes: snapshot.totalAssetBytes
   };
+}
+function materializeArticlePreviewAssets(snapshot) {
+  const state = snapshotState.get(snapshot);
+  if (!state) {
+    throw new ArticleValidationError("ARTICLE_SNAPSHOT_INVALID", "The article snapshot is invalid.");
+  }
+  return state.assets.map((asset) => Object.freeze({
+    sourcePath: `./assets/${asset.filename}`,
+    mimeType: asset.mimeType,
+    bytes: Buffer.from(asset.bytes),
+    sha256: asset.sha256
+  }));
 }
 
 // src/api.mjs
@@ -22940,26 +23023,563 @@ async function writePublicationRecord({
   });
 }
 
-// src/workspace.mjs
+// src/preview.mjs
 import { createHash as createHash2, randomUUID } from "node:crypto";
 import {
   chmod as chmod2,
-  copyFile,
   lstat as lstat4,
-  mkdir as mkdir3,
   open as open3,
-  readFile as readFile3,
+  realpath as realpath2,
   rename as rename3,
-  rm as rm3,
-  writeFile
+  rm as rm3
 } from "node:fs/promises";
 import path5 from "node:path";
+import { pathToFileURL } from "node:url";
+var MAX_MARKDOWN_BYTES = 2 * 1024 * 1024;
+var MAX_PREVIEW_BYTES = 32 * 1024 * 1024;
+var FILE_MODE = 384;
+var PreviewError = class extends Error {
+  constructor(code, message) {
+    super(message);
+    this.name = "PreviewError";
+    this.category = "preview";
+    this.code = code;
+    this.retryable = false;
+    this.resultUnknown = false;
+  }
+};
+function fail(code, message) {
+  throw new PreviewError(code, message);
+}
+function escapeHtml(value) {
+  return String(value).replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#39;");
+}
+function sameFileSnapshot(left, right) {
+  return left.dev === right.dev && left.ino === right.ino && left.size === right.size && left.mtimeNs === right.mtimeNs && left.ctimeNs === right.ctimeNs;
+}
+async function inspectMarkdown(articlePath2, slug2) {
+  const markdownPath = path5.join(path5.dirname(articlePath2), `${slug2}.md`);
+  let pathInfo;
+  let resolved;
+  try {
+    pathInfo = await lstat4(markdownPath, { bigint: true });
+    resolved = await realpath2(markdownPath);
+  } catch {
+    fail(
+      "PREVIEW_MARKDOWN_INVALID",
+      "The sibling Markdown source is missing or unavailable."
+    );
+  }
+  if (pathInfo.isSymbolicLink() || !pathInfo.isFile() || resolved !== markdownPath || pathInfo.size <= 0n || pathInfo.size > BigInt(MAX_MARKDOWN_BYTES)) {
+    fail(
+      "PREVIEW_MARKDOWN_INVALID",
+      "The sibling Markdown source must be a regular non-empty file no larger than 2 MiB."
+    );
+  }
+  let handle;
+  let source;
+  let bytes;
+  try {
+    handle = await open3(markdownPath, "r");
+    const before = await handle.stat({ bigint: true });
+    if (!before.isFile() || !sameFileSnapshot(pathInfo, before)) {
+      fail("PREVIEW_MARKDOWN_CHANGED", "The Markdown source changed while it was inspected.");
+    }
+    bytes = await handle.readFile();
+    const after = await handle.stat({ bigint: true });
+    if (!sameFileSnapshot(before, after) || bytes.length !== Number(before.size) || bytes.length > MAX_MARKDOWN_BYTES) {
+      fail("PREVIEW_MARKDOWN_CHANGED", "The Markdown source changed while it was inspected.");
+    }
+    try {
+      source = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+    } catch {
+      fail("PREVIEW_MARKDOWN_INVALID", "The Markdown source must be valid UTF-8 text.");
+    }
+    if (source.trim().length === 0) {
+      fail("PREVIEW_MARKDOWN_INVALID", "The Markdown source must not be blank.");
+    }
+  } finally {
+    await handle?.close().catch(() => {
+    });
+  }
+  return {
+    markdownPath,
+    source,
+    sha256: createHash2("sha256").update(bytes).digest("hex")
+  };
+}
+function safeLinkHref2(value) {
+  if (value.startsWith("/") && !value.startsWith("//")) return true;
+  if (value.startsWith("#") || value.startsWith("./") || value.startsWith("../")) return true;
+  try {
+    const url = new URL(value);
+    return ["http:", "https:", "mailto:", "tel:"].includes(url.protocol);
+  } catch {
+    return false;
+  }
+}
+function renderMarkdownInline(source, depth = 0) {
+  if (depth > 12 || source.length === 0) return escapeHtml(source);
+  const patterns = [
+    { kind: "code", expression: /`([^`\n]+)`/u },
+    { kind: "link", expression: /\[([^\]\n]+)\]\(([^)\s]+)\)/u },
+    { kind: "strong", expression: /\*\*([^*\n]+)\*\*/u },
+    { kind: "strong", expression: /__([^_\n]+)__/u },
+    { kind: "em", expression: /\*([^*\n]+)\*/u },
+    { kind: "em", expression: /_([^_\n]+)_/u }
+  ];
+  let selected;
+  for (const pattern of patterns) {
+    const match = pattern.expression.exec(source);
+    if (!match) continue;
+    if (!selected || match.index < selected.match.index) {
+      selected = { kind: pattern.kind, match };
+    }
+  }
+  if (!selected) return escapeHtml(source);
+  const before = source.slice(0, selected.match.index);
+  const after = source.slice(selected.match.index + selected.match[0].length);
+  let rendered;
+  if (selected.kind === "code") {
+    rendered = `<code>${escapeHtml(selected.match[1])}</code>`;
+  } else if (selected.kind === "link") {
+    const label = renderMarkdownInline(selected.match[1], depth + 1);
+    const href = selected.match[2];
+    rendered = safeLinkHref2(href) ? `<a href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer">${label}</a>` : `<span class="unsafe-link" title="Unsupported link omitted">${label}</span>`;
+  } else if (selected.kind === "strong") {
+    rendered = `<strong>${renderMarkdownInline(selected.match[1], depth + 1)}</strong>`;
+  } else {
+    rendered = `<em>${renderMarkdownInline(selected.match[1], depth + 1)}</em>`;
+  }
+  return `${escapeHtml(before)}${rendered}${renderMarkdownInline(after, depth + 1)}`;
+}
+function renderMarkdown(source) {
+  const lines = source.replaceAll("\r\n", "\n").replaceAll("\r", "\n").split("\n");
+  const output = [];
+  let paragraph = [];
+  let list;
+  let quote = [];
+  function flushParagraph() {
+    if (paragraph.length > 0) {
+      output.push(`<p>${renderMarkdownInline(paragraph.join(" "))}</p>`);
+      paragraph = [];
+    }
+  }
+  function flushList() {
+    if (!list) return;
+    output.push(`<${list.tag}>${list.items.join("")}</${list.tag}>`);
+    list = void 0;
+  }
+  function flushQuote() {
+    if (quote.length > 0) {
+      output.push(`<blockquote>${renderMarkdownInline(quote.join(" "))}</blockquote>`);
+      quote = [];
+    }
+  }
+  function flushFlow() {
+    flushParagraph();
+    flushList();
+    flushQuote();
+  }
+  let index = 0;
+  while (index < lines.length) {
+    const line = lines[index];
+    const fence = /^```([A-Za-z0-9_-]{0,64})\s*$/u.exec(line.trim());
+    if (fence) {
+      flushFlow();
+      const code = [];
+      index += 1;
+      while (index < lines.length && lines[index].trim() !== "```") {
+        code.push(lines[index]);
+        index += 1;
+      }
+      if (index < lines.length) index += 1;
+      const language = fence[1] || "text";
+      output.push(`<figure class="code-block"><figcaption>${escapeHtml(language)}</figcaption><pre><code>${escapeHtml(code.join("\n"))}</code></pre></figure>`);
+      continue;
+    }
+    if (line.trim().length === 0) {
+      flushFlow();
+      index += 1;
+      continue;
+    }
+    const heading = /^(#{1,3})\s+(.+)$/u.exec(line);
+    if (heading) {
+      flushFlow();
+      const level = Math.max(2, heading[1].length);
+      output.push(`<h${level}>${renderMarkdownInline(heading[2])}</h${level}>`);
+      index += 1;
+      continue;
+    }
+    const quoteLine = /^>\s?(.*)$/u.exec(line);
+    if (quoteLine) {
+      flushParagraph();
+      flushList();
+      quote.push(quoteLine[1]);
+      index += 1;
+      continue;
+    }
+    const listItem = /^(\s*)(?:([-+*])|(\d+)[.)])\s+(.+)$/u.exec(line);
+    if (listItem) {
+      flushParagraph();
+      flushQuote();
+      const tag = listItem[3] ? "ol" : "ul";
+      if (list && list.tag !== tag) flushList();
+      list ??= { tag, items: [] };
+      const level = Math.min(10, Math.floor(listItem[1].replaceAll("	", "  ").length / 2) + 1);
+      list.items.push(`<li class="list-level-${level}">${renderMarkdownInline(listItem[4])}</li>`);
+      index += 1;
+      continue;
+    }
+    flushList();
+    flushQuote();
+    paragraph.push(line.trim());
+    index += 1;
+  }
+  flushFlow();
+  return output.join("\n");
+}
+function localAssetUrl(source, localAssets) {
+  if (!source || typeof source !== "object" || !("path" in source)) return void 0;
+  return localAssets.get(source.path);
+}
+function localAssetPath(articlePath2, source) {
+  if (!source || typeof source !== "object" || !("path" in source)) return void 0;
+  const filename = source.path.slice("./assets/".length);
+  return path5.join(path5.dirname(articlePath2), "assets", filename);
+}
+function renderSpans(block) {
+  const definitions = new Map(
+    (block.markDefs ?? []).filter((definition) => definition?._key).map((definition) => [definition._key, definition])
+  );
+  return block.children.map((child) => {
+    let rendered = escapeHtml(child.text);
+    for (const mark of child.marks ?? []) {
+      if (mark === "strong") {
+        rendered = `<strong>${rendered}</strong>`;
+      } else if (mark === "em") {
+        rendered = `<em>${rendered}</em>`;
+      } else if (mark === "code") {
+        rendered = `<code>${rendered}</code>`;
+      } else {
+        const definition = definitions.get(mark);
+        if (definition?._type === "link") {
+          rendered = `<a href="${escapeHtml(definition.href)}" target="_blank" rel="noopener noreferrer">${rendered}</a>`;
+        }
+      }
+    }
+    return rendered;
+  }).join("");
+}
+function renderImage(item, localAssets) {
+  const sourceUrl = localAssetUrl(item.source, localAssets);
+  if (!sourceUrl) {
+    return `<figure class="asset-placeholder" role="img" aria-label="${escapeHtml(item.alt)}">
+      <div class="asset-placeholder__icon">\u25C7</div>
+      <strong>Remote Sanity image</strong>
+      <span>${escapeHtml(item.alt)}</span>
+    </figure>`;
+  }
+  return `<figure class="body-image">
+    <img src="${sourceUrl}" alt="${escapeHtml(item.alt)}">
+    <figcaption>${escapeHtml(item.alt)}</figcaption>
+  </figure>`;
+}
+function renderCode(item) {
+  const language = item.language ? escapeHtml(item.language) : "text";
+  return `<figure class="code-block">
+    <figcaption>${language}</figcaption>
+    <pre><code>${escapeHtml(item.code)}</code></pre>
+  </figure>`;
+}
+function renderStandaloneItem(item, localAssets) {
+  if (item._type === "image") return renderImage(item, localAssets);
+  if (item._type === "code") return renderCode(item);
+  const content = renderSpans(item);
+  if (item.style === "h2") return `<h2>${content}</h2>`;
+  if (item.style === "h3") return `<h3>${content}</h3>`;
+  if (item.style === "blockquote") return `<blockquote>${content}</blockquote>`;
+  return `<p>${content}</p>`;
+}
+function renderPortableText(items, localAssets) {
+  const output = [];
+  let index = 0;
+  while (index < items.length) {
+    const item = items[index];
+    if (item._type !== "block" || !item.listItem) {
+      output.push(renderStandaloneItem(item, localAssets));
+      index += 1;
+      continue;
+    }
+    const listItem = item.listItem;
+    const tag = listItem === "number" ? "ol" : "ul";
+    const entries = [];
+    while (index < items.length && items[index]._type === "block" && items[index].listItem === listItem) {
+      const current = items[index];
+      const level = current.level ?? 1;
+      entries.push(
+        `<li class="list-level-${level}">${renderSpans(current)}</li>`
+      );
+      index += 1;
+    }
+    output.push(`<${tag}>${entries.join("")}</${tag}>`);
+  }
+  return output.join("\n");
+}
+function renderCover(article, localAssets) {
+  const sourceUrl = localAssetUrl(article.coverImage.source, localAssets);
+  const alt = `${article.coverImage.alt.en} / ${article.coverImage.alt.zh}`;
+  if (!sourceUrl) {
+    return `<div class="cover-placeholder" role="img" aria-label="${escapeHtml(alt)}">
+      <span>Remote cover image</span>
+      <strong>${escapeHtml(article.title.en)}</strong>
+    </div>`;
+  }
+  return `<img class="cover" src="${sourceUrl}" alt="${escapeHtml(alt)}">`;
+}
+function renderLocale(article, locale, label, localAssets) {
+  const title = article.title[locale];
+  const excerpt = article.excerpt[locale];
+  return `<article class="article" id="${locale}" lang="${locale}">
+    <header class="article-header">
+      <span class="language-label">${escapeHtml(label)}</span>
+      <h1>${escapeHtml(title)}</h1>
+      <p class="excerpt">${escapeHtml(excerpt)}</p>
+    </header>
+    <div class="prose">${renderPortableText(article.body[locale], localAssets)}</div>
+    <aside class="seo-card" aria-label="SEO preview">
+      <span>SEO preview</span>
+      <strong>${escapeHtml(article.seo.title[locale])}</strong>
+      <p>${escapeHtml(article.seo.description[locale])}</p>
+    </aside>
+  </article>`;
+}
+function countRemoteImages(article) {
+  let count = "assetRef" in article.coverImage.source ? 1 : 0;
+  for (const locale of ["en", "zh"]) {
+    for (const item of article.body[locale]) {
+      if (item._type === "image" && "assetRef" in item.source) count += 1;
+    }
+  }
+  return count;
+}
+function renderHtml(article, markdownSource, previewRevision2, localAssets) {
+  const published = article.publishedAt ? `<span>Published timestamp: ${escapeHtml(article.publishedAt)}</span>` : "<span>Draft without a fixed publication timestamp</span>";
+  return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex,nofollow">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-src 'none'; object-src 'none'">
+  <title>${escapeHtml(article.title.en)} \u2014 local preview</title>
+  <style>
+    :root { color-scheme: light dark; --bg: #f4f1ea; --paper: #fffdf8; --ink: #17201d; --muted: #66706c; --line: #d9d3c8; --accent: #0f766e; --soft: #dff4ef; }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body { margin: 0; background: var(--bg); color: var(--ink); font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; line-height: 1.7; }
+    a { color: var(--accent); text-underline-offset: .18em; }
+    .shell { width: min(1120px, calc(100% - 32px)); margin: 28px auto 72px; }
+    .preview-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; padding: 12px 16px; border: 1px solid var(--line); border-radius: 14px; background: color-mix(in srgb, var(--paper) 88%, transparent); font-size: 14px; color: var(--muted); }
+    .preview-bar strong { color: var(--ink); }
+    .preview-bar nav { display: flex; gap: 8px; }
+    .preview-bar a { padding: 5px 10px; border-radius: 999px; background: var(--soft); text-decoration: none; font-weight: 700; }
+    .hero { overflow: hidden; border: 1px solid var(--line); border-radius: 24px; background: var(--paper); box-shadow: 0 20px 55px rgba(28, 40, 35, .09); }
+    .cover, .cover-placeholder { display: block; width: 100%; aspect-ratio: 1200 / 630; object-fit: cover; background: linear-gradient(135deg, #0f766e, #34d399); }
+    .cover-placeholder { display: grid; place-content: center; gap: 8px; padding: 32px; color: white; text-align: center; }
+    .cover-placeholder span { font-size: 12px; letter-spacing: .16em; text-transform: uppercase; opacity: .8; }
+    .cover-placeholder strong { font-size: clamp(24px, 5vw, 58px); line-height: 1.08; }
+    .hero-meta { padding: 18px 24px; display: flex; flex-wrap: wrap; gap: 10px 18px; color: var(--muted); font-size: 14px; }
+    .columns { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; margin-top: 18px; align-items: start; }
+    .article { min-width: 0; padding: clamp(24px, 4vw, 54px); border: 1px solid var(--line); border-radius: 24px; background: var(--paper); box-shadow: 0 18px 44px rgba(28, 40, 35, .07); }
+    .language-label { display: inline-block; margin-bottom: 14px; color: var(--accent); font-size: 12px; font-weight: 800; letter-spacing: .16em; text-transform: uppercase; }
+    h1 { margin: 0; font-family: Georgia, "Times New Roman", serif; font-size: clamp(36px, 5vw, 62px); line-height: 1.03; letter-spacing: -.035em; }
+    .excerpt { margin: 22px 0 0; color: var(--muted); font-size: 19px; line-height: 1.55; }
+    .prose { margin-top: 38px; font-family: Georgia, "Times New Roman", serif; font-size: 18px; }
+    .prose h2 { margin: 2.2em 0 .7em; font-size: 30px; line-height: 1.2; }
+    .prose h3 { margin: 1.8em 0 .6em; font-size: 23px; line-height: 1.3; }
+    .prose p { margin: 1.15em 0; }
+    .prose blockquote { margin: 1.6em 0; padding: 8px 0 8px 22px; border-left: 4px solid var(--accent); color: var(--muted); font-style: italic; }
+    .prose code { padding: .12em .35em; border-radius: 5px; background: color-mix(in srgb, var(--soft) 72%, transparent); font-family: "SFMono-Regular", Consolas, monospace; font-size: .88em; }
+    .prose ul, .prose ol { padding-left: 1.45em; }
+    .list-level-2 { margin-left: 1.2em; }
+    .list-level-3 { margin-left: 2.4em; }
+    .body-image { margin: 30px 0; }
+    .body-image img { display: block; width: 100%; height: auto; border-radius: 14px; }
+    figcaption { margin-top: 8px; color: var(--muted); font: 13px/1.5 Inter, ui-sans-serif, system-ui, sans-serif; }
+    .asset-placeholder { min-height: 220px; display: grid; place-content: center; gap: 8px; padding: 26px; border: 1px dashed var(--line); border-radius: 16px; background: color-mix(in srgb, var(--soft) 38%, var(--paper)); text-align: center; font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
+    .asset-placeholder__icon { color: var(--accent); font-size: 42px; }
+    .code-block { margin: 28px 0; overflow: hidden; border-radius: 14px; background: #111827; color: #e5e7eb; }
+    .code-block figcaption { margin: 0; padding: 9px 14px; background: #1f2937; color: #9ca3af; }
+    .code-block pre { margin: 0; padding: 18px; overflow: auto; }
+    .code-block code { padding: 0; background: none; color: inherit; }
+    .seo-card { margin-top: 46px; padding: 18px; border: 1px solid var(--line); border-radius: 14px; background: color-mix(in srgb, var(--soft) 46%, var(--paper)); font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
+    .seo-card span { display: block; margin-bottom: 8px; color: var(--accent); font-size: 11px; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; }
+    .seo-card strong { display: block; color: #1558d6; font-size: 18px; line-height: 1.35; }
+    .seo-card p { margin: 7px 0 0; color: var(--muted); font-size: 14px; line-height: 1.5; }
+    .markdown-card { margin-top: 18px; padding: clamp(22px, 4vw, 44px); border: 1px solid var(--line); border-radius: 24px; background: var(--paper); box-shadow: 0 18px 44px rgba(28, 40, 35, .07); }
+    .markdown-card summary { cursor: pointer; color: var(--ink); font-size: 21px; font-weight: 800; }
+    .markdown-note { margin-top: 12px; padding: 12px 14px; border-radius: 12px; background: color-mix(in srgb, var(--soft) 52%, var(--paper)); color: var(--muted); font-size: 14px; }
+    .markdown-prose { width: min(760px, 100%); margin: 34px auto 0; }
+    .unsafe-link { text-decoration: line-through; text-decoration-color: #dc2626; cursor: not-allowed; }
+    footer { margin-top: 18px; color: var(--muted); text-align: center; font-size: 13px; }
+    @media (max-width: 840px) { .columns { grid-template-columns: 1fr; } .article { padding: 28px 22px; } h1 { font-size: 42px; } }
+    @media (prefers-color-scheme: dark) { :root { --bg: #101512; --paper: #171d1a; --ink: #edf4ef; --muted: #a3ada7; --line: #344039; --accent: #5eead4; --soft: #183d36; } .hero, .article { box-shadow: none; } .seo-card strong { color: #8ab4ff; } }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <div class="preview-bar">
+      <span><strong>Local draft preview</strong> \xB7 approximate production appearance</span>
+      <nav aria-label="Languages"><a href="#en">English</a><a href="#zh">\u4E2D\u6587</a></nav>
+    </div>
+    <section class="hero">
+      ${renderCover(article, localAssets)}
+      <div class="hero-meta"><span>/${escapeHtml(article.slug)}</span>${published}<span>Source: validated article JSON</span><span>Preview revision: ${escapeHtml(previewRevision2.slice(0, 12))}</span></div>
+    </section>
+    <section class="columns">
+      ${renderLocale(article, "en", "English", localAssets)}
+      ${renderLocale(article, "zh", "\u4E2D\u6587", localAssets)}
+    </section>
+    <details class="markdown-card" open>
+      <summary>Markdown visual preview</summary>
+      <div class="markdown-note">This pane safely renders the sibling Markdown source. Compare it with the JSON payload preview above before publishing.</div>
+      <div class="prose markdown-prose">${renderMarkdown(markdownSource)}</div>
+    </details>
+    <footer>The upper panes render the validated JSON payload; the expandable lower pane renders the sibling Markdown source. Final site typography and components may differ.</footer>
+  </main>
+</body>
+</html>
+`;
+}
+async function assertReplaceablePreview(previewPath) {
+  try {
+    const info = await lstat4(previewPath);
+    if (info.isSymbolicLink() || !info.isFile()) {
+      fail(
+        "PREVIEW_PATH_UNSAFE",
+        "The preview target exists but is not an ordinary file."
+      );
+    }
+  } catch (error2) {
+    if (error2?.code === "ENOENT") return;
+    if (error2 instanceof PreviewError) throw error2;
+    fail("PREVIEW_WRITE_FAILED", "Unable to inspect the local preview target.");
+  }
+}
+async function writePreview(previewPath, source) {
+  const bytes = Buffer.byteLength(source);
+  if (bytes <= 0 || bytes > MAX_PREVIEW_BYTES) {
+    fail("PREVIEW_SIZE_INVALID", "The generated preview exceeds the 32 MiB limit.");
+  }
+  await assertReplaceablePreview(previewPath);
+  const temporaryPath = path5.join(
+    path5.dirname(previewPath),
+    `.${path5.basename(previewPath)}.${randomUUID()}.tmp`
+  );
+  let handle;
+  try {
+    handle = await open3(temporaryPath, "wx", FILE_MODE);
+    await handle.writeFile(source, "utf8");
+    await handle.sync();
+    await handle.close();
+    handle = void 0;
+    await rename3(temporaryPath, previewPath);
+    try {
+      await chmod2(previewPath, FILE_MODE);
+    } catch {
+      if (process.platform !== "win32") {
+        fail("PREVIEW_WRITE_FAILED", "Unable to restrict the local preview file permissions.");
+      }
+    }
+  } catch (error2) {
+    if (error2 instanceof PreviewError) throw error2;
+    fail("PREVIEW_WRITE_FAILED", "Unable to write the local HTML preview.");
+  } finally {
+    await handle?.close().catch(() => {
+    });
+    await rm3(temporaryPath, { force: true }).catch(() => {
+    });
+  }
+}
+async function renderArticlePreview(snapshot) {
+  if (!snapshot || typeof snapshot !== "object" || !snapshot.article || typeof snapshot.articlePath !== "string" || typeof snapshot.slug !== "string" || !/^[0-9a-f]{64}$/u.test(snapshot.contentSha256)) {
+    fail("PREVIEW_SNAPSHOT_INVALID", "The validated article snapshot is invalid.");
+  }
+  const {
+    markdownPath,
+    source: markdownSource,
+    sha256: markdownSha256
+  } = await inspectMarkdown(
+    snapshot.articlePath,
+    snapshot.slug
+  );
+  const previewPath = path5.join(
+    path5.dirname(snapshot.articlePath),
+    `${snapshot.slug}.preview.html`
+  );
+  const previewRevision2 = createHash2("sha256").update("content\0").update(snapshot.contentSha256).update("\0markdown\0").update(markdownSha256).digest("hex");
+  const localAssets = new Map(
+    materializeArticlePreviewAssets(snapshot).map((asset) => [
+      asset.sourcePath,
+      `data:${asset.mimeType};base64,${asset.bytes.toString("base64")}`
+    ])
+  );
+  const source = renderHtml(
+    snapshot.article,
+    markdownSource,
+    previewRevision2,
+    localAssets
+  );
+  await writePreview(previewPath, source);
+  const remoteImageCount = countRemoteImages(snapshot.article);
+  const warnings = [
+    "This is an approximate local preview; the production site theme and components may differ.",
+    "The preview shows both the validated article JSON payload and a safe rendering of the sibling Markdown; publishing uses the JSON payload."
+  ];
+  if (remoteImageCount > 0) {
+    warnings.push(
+      `${remoteImageCount} remote Sanity image${remoteImageCount === 1 ? " is" : "s are"} shown as a placeholder.`
+    );
+  }
+  const coverPath = localAssetPath(snapshot.articlePath, snapshot.article.coverImage.source);
+  return {
+    ok: true,
+    approximate: true,
+    source: "article-json",
+    markdownRendered: true,
+    previewRevision: previewRevision2,
+    slug: snapshot.slug,
+    articlePath: snapshot.articlePath,
+    markdownPath,
+    ...coverPath ? { coverPath } : {},
+    previewPath,
+    previewUrl: pathToFileURL(previewPath).href,
+    locales: ["en", "zh"],
+    warnings
+  };
+}
+
+// src/workspace.mjs
+import { createHash as createHash3, randomUUID as randomUUID2 } from "node:crypto";
+import {
+  chmod as chmod3,
+  copyFile,
+  lstat as lstat5,
+  mkdir as mkdir3,
+  open as open4,
+  readFile as readFile3,
+  rename as rename4,
+  rm as rm4,
+  writeFile
+} from "node:fs/promises";
+import path6 from "node:path";
 var SLUG_PATTERN3 = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 var RESERVATION_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 var PNG_SIGNATURE = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
 var METADATA_FILE = "reservation.json";
 var CONTROL_MODE = 448;
-var FILE_MODE = 384;
+var FILE_MODE2 = 384;
 var MAX_STAGING_TEXT_BYTES = 2 * 1024 * 1024;
 var MAX_STAGING_COVER_BYTES = 20 * 1024 * 1024;
 var READ_CHUNK_BYTES = 64 * 1024;
@@ -22988,12 +23608,12 @@ var WorkspaceError = class extends Error {
     return error2;
   }
 };
-function fail(code, message, details) {
+function fail2(code, message, details) {
   throw new WorkspaceError(code, message, details);
 }
 function assertSlug(slug2, field = "slug") {
   if (typeof slug2 !== "string" || slug2.length < 1 || slug2.length > 96 || !SLUG_PATTERN3.test(slug2)) {
-    fail(
+    fail2(
       "INVALID_SLUG",
       `${field} must be a lowercase, hyphen-separated slug of at most 96 characters.`
     );
@@ -23002,13 +23622,13 @@ function assertSlug(slug2, field = "slug") {
 }
 function assertReservationId(reservationId2) {
   if (typeof reservationId2 !== "string" || !RESERVATION_ID_PATTERN.test(reservationId2)) {
-    fail("INVALID_RESERVATION_ID", "reservationId is not a valid reservation identifier.");
+    fail2("INVALID_RESERVATION_ID", "reservationId is not a valid reservation identifier.");
   }
   return reservationId2;
 }
 async function getEntryKind(entryPath) {
   try {
-    const info = await lstat4(entryPath);
+    const info = await lstat5(entryPath);
     if (info.isSymbolicLink()) return "symlink";
     if (info.isFile()) return "file";
     if (info.isDirectory()) return "directory";
@@ -23020,7 +23640,7 @@ async function getEntryKind(entryPath) {
 }
 async function assertDirectory(directoryPath, { create = false, privateControl = false } = {}) {
   if (create && !privateControl) {
-    fail(
+    fail2(
       "WORKSPACE_IO_FAILED",
       "Only private workspace control directories may be created automatically."
     );
@@ -23029,21 +23649,21 @@ async function assertDirectory(directoryPath, { create = false, privateControl =
     try {
       await mkdir3(directoryPath, { recursive: true, mode: CONTROL_MODE });
     } catch {
-      fail("WORKSPACE_IO_FAILED", "Unable to create a required workspace directory.");
+      fail2("WORKSPACE_IO_FAILED", "Unable to create a required workspace directory.");
     }
   }
   const kind = await getEntryKind(directoryPath);
   if (kind === "symlink") {
-    fail("UNSAFE_WORKSPACE_PATH", "A required workspace directory is a symbolic link.");
+    fail2("UNSAFE_WORKSPACE_PATH", "A required workspace directory is a symbolic link.");
   }
   if (kind !== "directory") {
-    fail("INVALID_WORKSPACE", "A required workspace path is not a directory.");
+    fail2("INVALID_WORKSPACE", "A required workspace path is not a directory.");
   }
   if (!privateControl) {
     return;
   }
   try {
-    await chmod2(directoryPath, CONTROL_MODE);
+    await chmod3(directoryPath, CONTROL_MODE);
   } catch (error2) {
     if (processPlatformIsPosix()) {
       throw new WorkspaceError(
@@ -23058,17 +23678,17 @@ function processPlatformIsPosix() {
 }
 function resolveWorkspace(config2) {
   const workspaceRoot = config2?.workspaceRoot;
-  if (typeof workspaceRoot !== "string" || workspaceRoot.length === 0 || !path5.isAbsolute(workspaceRoot)) {
-    fail("INVALID_WORKSPACE_ROOT", "Configured workspaceRoot must be an absolute path.");
+  if (typeof workspaceRoot !== "string" || workspaceRoot.length === 0 || !path6.isAbsolute(workspaceRoot)) {
+    fail2("INVALID_WORKSPACE_ROOT", "Configured workspaceRoot must be an absolute path.");
   }
-  const root = path5.resolve(workspaceRoot);
-  const blogRoot = path5.join(root, "blog");
+  const root = path6.resolve(workspaceRoot);
+  const blogRoot = path6.join(root, "blog");
   return {
     root,
     blogRoot,
-    assetsRoot: path5.join(blogRoot, "assets"),
-    reservationsRoot: path5.join(blogRoot, ".reservations"),
-    stagingRoot: path5.join(blogRoot, ".staging")
+    assetsRoot: path6.join(blogRoot, "assets"),
+    reservationsRoot: path6.join(blogRoot, ".reservations"),
+    stagingRoot: path6.join(blogRoot, ".staging")
   };
 }
 async function openWorkspace(config2) {
@@ -23094,9 +23714,9 @@ async function openWorkspace(config2) {
 }
 function bundlePaths(basePath, slug2) {
   return {
-    markdownPath: path5.join(basePath, `${slug2}.md`),
-    articlePath: path5.join(basePath, `${slug2}.json`),
-    coverPath: path5.join(basePath, "assets", `${slug2}-cover.png`)
+    markdownPath: path6.join(basePath, `${slug2}.md`),
+    articlePath: path6.join(basePath, `${slug2}.json`),
+    coverPath: path6.join(basePath, "assets", `${slug2}-cover.png`)
   };
 }
 async function inspectBundle(basePath, slug2) {
@@ -23109,13 +23729,13 @@ async function inspectBundle(basePath, slug2) {
   const kinds = await Promise.all(entries.map(([, entryPath]) => getEntryKind(entryPath)));
   for (let index = 0; index < entries.length; index += 1) {
     if (kinds[index] === "symlink") {
-      fail(
+      fail2(
         "UNSAFE_WORKSPACE_ENTRY",
         `The ${entries[index][0]} bundle entry is a symbolic link.`
       );
     }
     if (kinds[index] !== "missing" && kinds[index] !== "file") {
-      fail(
+      fail2(
         "UNSAFE_WORKSPACE_ENTRY",
         `The ${entries[index][0]} bundle entry is not an ordinary file.`
       );
@@ -23133,9 +23753,9 @@ async function digestBundle(bundle) {
     return { state: "missing", digest: null };
   }
   if (bundle.state !== "complete") {
-    fail("LOCAL_BUNDLE_INCOMPLETE", "The local article bundle is incomplete.");
+    fail2("LOCAL_BUNDLE_INCOMPLETE", "The local article bundle is incomplete.");
   }
-  const hash = createHash2("sha256");
+  const hash = createHash3("sha256");
   for (const [label, fileLabel, entryPath, maxBytes, limitDescription] of [
     ["markdown", "markdown", bundle.paths.markdownPath, MAX_STAGING_TEXT_BYTES, "2 MiB"],
     ["article", "article JSON", bundle.paths.articlePath, MAX_STAGING_TEXT_BYTES, "2 MiB"],
@@ -23159,45 +23779,45 @@ function sameBaseline(left, right) {
   return left?.state === right?.state && (left.state === "missing" || left?.digest === right?.digest);
 }
 async function writeReservationMetadata(lockPath, metadata) {
-  const metadataPath = path5.join(lockPath, METADATA_FILE);
+  const metadataPath = path6.join(lockPath, METADATA_FILE);
   try {
     await writeFile(metadataPath, `${JSON.stringify(metadata)}
 `, {
       encoding: "utf8",
       flag: "wx",
-      mode: FILE_MODE
+      mode: FILE_MODE2
     });
-    await chmod2(metadataPath, FILE_MODE);
+    await chmod3(metadataPath, FILE_MODE2);
   } catch {
-    fail("WORKSPACE_IO_FAILED", "Unable to persist the workspace reservation.");
+    fail2("WORKSPACE_IO_FAILED", "Unable to persist the workspace reservation.");
   }
 }
 async function readReservationMetadata(workspace, slug2, reservationId2) {
-  const lockPath = path5.join(workspace.reservationsRoot, slug2);
+  const lockPath = path6.join(workspace.reservationsRoot, slug2);
   const lockKind = await getEntryKind(lockPath);
   if (lockKind === "missing") {
-    fail("RESERVATION_NOT_FOUND", "No active reservation exists for this slug.");
+    fail2("RESERVATION_NOT_FOUND", "No active reservation exists for this slug.");
   }
   if (lockKind !== "directory") {
-    fail("UNSAFE_RESERVATION", "The reservation entry is not a regular directory.");
+    fail2("UNSAFE_RESERVATION", "The reservation entry is not a regular directory.");
   }
-  const metadataPath = path5.join(lockPath, METADATA_FILE);
+  const metadataPath = path6.join(lockPath, METADATA_FILE);
   if (await getEntryKind(metadataPath) !== "file") {
-    fail("UNSAFE_RESERVATION", "The reservation metadata is not an ordinary file.");
+    fail2("UNSAFE_RESERVATION", "The reservation metadata is not an ordinary file.");
   }
   let metadata;
   try {
     metadata = JSON.parse(await readFile3(metadataPath, "utf8"));
   } catch {
-    fail("INVALID_RESERVATION", "The reservation metadata is invalid.");
+    fail2("INVALID_RESERVATION", "The reservation metadata is invalid.");
   }
   if (metadata?.schemaVersion !== 1 || metadata?.slug !== slug2 || metadata?.reservationId !== reservationId2 || !["create", "update"].includes(metadata?.mode) || !["missing", "complete"].includes(metadata?.baseline?.state) || metadata.baseline.state === "complete" && !/^[0-9a-f]{64}$/i.test(metadata.baseline.digest)) {
-    fail("RESERVATION_MISMATCH", "The reservation does not match the requested operation.");
+    fail2("RESERVATION_MISMATCH", "The reservation does not match the requested operation.");
   }
   return { metadata, lockPath };
 }
 async function copyExistingBundle(source, destination) {
-  await assertDirectory(path5.dirname(destination.coverPath), {
+  await assertDirectory(path6.dirname(destination.coverPath), {
     create: true,
     privateControl: true
   });
@@ -23208,9 +23828,9 @@ async function copyExistingBundle(source, destination) {
   ]) {
     try {
       await copyFile(from, to);
-      await chmod2(to, FILE_MODE);
+      await chmod3(to, FILE_MODE2);
     } catch {
-      fail("WORKSPACE_IO_FAILED", "Unable to copy the existing article into staging.");
+      fail2("WORKSPACE_IO_FAILED", "Unable to copy the existing article into staging.");
     }
   }
 }
@@ -23219,16 +23839,16 @@ async function prepare({ slug: slug2, config: config2, requireExisting }) {
   const workspace = await openWorkspace(config2);
   const localBundle = await inspectBundle(workspace.blogRoot, slug2);
   if (localBundle.state === "partial") {
-    fail("LOCAL_BUNDLE_INCOMPLETE", "The local article bundle is incomplete.");
+    fail2("LOCAL_BUNDLE_INCOMPLETE", "The local article bundle is incomplete.");
   }
   if (requireExisting && localBundle.state === "missing") {
-    fail("LOCAL_ARTICLE_NOT_FOUND", "The local article bundle does not exist.");
+    fail2("LOCAL_ARTICLE_NOT_FOUND", "The local article bundle does not exist.");
   }
   const mode = localBundle.state === "complete" ? "update" : "create";
   const baseline = await digestBundle(localBundle);
-  const reservationId2 = randomUUID();
-  const lockPath = path5.join(workspace.reservationsRoot, slug2);
-  const stagingPath = path5.join(workspace.stagingRoot, reservationId2);
+  const reservationId2 = randomUUID2();
+  const lockPath = path6.join(workspace.reservationsRoot, slug2);
+  const stagingPath = path6.join(workspace.stagingRoot, reservationId2);
   const stagingBundle = bundlePaths(stagingPath, slug2);
   let lockCreated = false;
   let stagingCreated = false;
@@ -23238,9 +23858,9 @@ async function prepare({ slug: slug2, config: config2, requireExisting }) {
       lockCreated = true;
     } catch (error2) {
       if (error2?.code === "EEXIST") {
-        fail("RESERVATION_CONFLICT", "Another operation already reserved this slug.");
+        fail2("RESERVATION_CONFLICT", "Another operation already reserved this slug.");
       }
-      fail("WORKSPACE_IO_FAILED", "Unable to reserve the local article bundle.");
+      fail2("WORKSPACE_IO_FAILED", "Unable to reserve the local article bundle.");
     }
     await assertDirectory(lockPath, { privateControl: true });
     await mkdir3(stagingPath, {
@@ -23249,7 +23869,7 @@ async function prepare({ slug: slug2, config: config2, requireExisting }) {
     });
     stagingCreated = true;
     await assertDirectory(stagingPath, { privateControl: true });
-    await assertDirectory(path5.join(stagingPath, "assets"), {
+    await assertDirectory(path6.join(stagingPath, "assets"), {
       create: true,
       privateControl: true
     });
@@ -23260,7 +23880,7 @@ async function prepare({ slug: slug2, config: config2, requireExisting }) {
         paths: stagingBundle
       });
       if (!sameBaseline(baseline, stagedBaseline)) {
-        fail(
+        fail2(
           "BASELINE_CHANGED",
           "The local article changed while its staging snapshot was being created."
         );
@@ -23276,11 +23896,11 @@ async function prepare({ slug: slug2, config: config2, requireExisting }) {
     });
   } catch (error2) {
     if (stagingCreated) {
-      await rm3(stagingPath, { recursive: true, force: true }).catch(() => {
+      await rm4(stagingPath, { recursive: true, force: true }).catch(() => {
       });
     }
     if (lockCreated) {
-      await rm3(lockPath, { recursive: true, force: true }).catch(() => {
+      await rm4(lockPath, { recursive: true, force: true }).catch(() => {
       });
     }
     throw error2;
@@ -23300,46 +23920,46 @@ async function preparePublish({ baseSlug, config: config2 }) {
 async function prepareUpdate({ slug: slug2, config: config2 }) {
   return prepare({ slug: assertSlug(slug2), config: config2, requireExisting: true });
 }
-function sameFileSnapshot(left, right) {
+function sameFileSnapshot2(left, right) {
   return left.dev === right.dev && left.ino === right.ino && left.size === right.size && left.mtimeNs === right.mtimeNs && left.ctimeNs === right.ctimeNs;
 }
 async function readStableStagingFile(entryPath, { label, maxBytes, limitDescription }) {
   let pathBefore;
   try {
-    pathBefore = await lstat4(entryPath, { bigint: true });
+    pathBefore = await lstat5(entryPath, { bigint: true });
   } catch (error2) {
     if (error2?.code === "ENOENT") {
-      fail("STAGING_BUNDLE_CHANGED", `The staged ${label} changed while being read.`);
+      fail2("STAGING_BUNDLE_CHANGED", `The staged ${label} changed while being read.`);
     }
-    fail("WORKSPACE_IO_FAILED", "Unable to inspect the staging bundle.");
+    fail2("WORKSPACE_IO_FAILED", "Unable to inspect the staging bundle.");
   }
   if (pathBefore.isSymbolicLink() || !pathBefore.isFile()) {
-    fail(
+    fail2(
       "UNSAFE_WORKSPACE_ENTRY",
       `The staged ${label} is not an ordinary file.`
     );
   }
   if (pathBefore.size === 0n) {
-    fail("STAGING_BUNDLE_INVALID", `The staged ${label} must not be empty.`);
+    fail2("STAGING_BUNDLE_INVALID", `The staged ${label} must not be empty.`);
   }
   if (pathBefore.size > BigInt(maxBytes)) {
-    fail(
+    fail2(
       "STAGING_BUNDLE_INVALID",
       `The staged ${label} exceeds the ${limitDescription} limit.`
     );
   }
   let fileHandle;
   try {
-    fileHandle = await open3(entryPath, "r");
+    fileHandle = await open4(entryPath, "r");
     const before = await fileHandle.stat({ bigint: true });
     if (!before.isFile()) {
-      fail(
+      fail2(
         "UNSAFE_WORKSPACE_ENTRY",
         `The staged ${label} is not an ordinary file.`
       );
     }
-    if (!sameFileSnapshot(pathBefore, before)) {
-      fail("STAGING_BUNDLE_CHANGED", `The staged ${label} changed while being read.`);
+    if (!sameFileSnapshot2(pathBefore, before)) {
+      fail2("STAGING_BUNDLE_CHANGED", `The staged ${label} changed while being read.`);
     }
     const bytes = Buffer.alloc(Number(before.size));
     let offset = 0;
@@ -23361,34 +23981,34 @@ async function readStableStagingFile(entryPath, { label, maxBytes, limitDescript
     const after = await fileHandle.stat({ bigint: true });
     let pathAfter;
     try {
-      pathAfter = await lstat4(entryPath, { bigint: true });
+      pathAfter = await lstat5(entryPath, { bigint: true });
     } catch (error2) {
       if (error2?.code === "ENOENT") {
-        fail(
+        fail2(
           "STAGING_BUNDLE_CHANGED",
           `The staged ${label} changed while being read.`
         );
       }
       throw error2;
     }
-    if (pathAfter.isSymbolicLink() || !pathAfter.isFile() || offset !== bytes.length || extraBytesRead !== 0 || !sameFileSnapshot(before, after) || !sameFileSnapshot(after, pathAfter)) {
-      fail("STAGING_BUNDLE_CHANGED", `The staged ${label} changed while being read.`);
+    if (pathAfter.isSymbolicLink() || !pathAfter.isFile() || offset !== bytes.length || extraBytesRead !== 0 || !sameFileSnapshot2(before, after) || !sameFileSnapshot2(after, pathAfter)) {
+      fail2("STAGING_BUNDLE_CHANGED", `The staged ${label} changed while being read.`);
     }
     return bytes;
   } catch (error2) {
     if (error2 instanceof WorkspaceError) {
       throw error2;
     }
-    fail("WORKSPACE_IO_FAILED", "Unable to read the staging bundle.");
+    fail2("WORKSPACE_IO_FAILED", "Unable to read the staging bundle.");
   } finally {
     await fileHandle?.close().catch(() => {
     });
   }
 }
 async function assertCommitReady(stagingBundle, slug2) {
-  const staged = await inspectBundle(path5.dirname(stagingBundle.markdownPath), slug2);
+  const staged = await inspectBundle(path6.dirname(stagingBundle.markdownPath), slug2);
   if (staged.state !== "complete") {
-    fail("STAGING_BUNDLE_INCOMPLETE", "The staging bundle must contain all three files.");
+    fail2("STAGING_BUNDLE_INCOMPLETE", "The staging bundle must contain all three files.");
   }
   const [markdownBytes, articleBytes, cover] = await Promise.all([
     readStableStagingFile(stagingBundle.markdownPath, {
@@ -23410,33 +24030,33 @@ async function assertCommitReady(stagingBundle, slug2) {
   const markdown = markdownBytes.toString("utf8");
   const articleText = articleBytes.toString("utf8");
   if (markdown.trim().length === 0 || articleText.trim().length === 0) {
-    fail("STAGING_BUNDLE_INVALID", "Markdown and article JSON must not be empty.");
+    fail2("STAGING_BUNDLE_INVALID", "Markdown and article JSON must not be empty.");
   }
   let article;
   try {
     article = JSON.parse(articleText);
   } catch {
-    fail("STAGING_BUNDLE_INVALID", "The staged article is not valid JSON.");
+    fail2("STAGING_BUNDLE_INVALID", "The staged article is not valid JSON.");
   }
   if (!article || typeof article !== "object" || Array.isArray(article)) {
-    fail("STAGING_BUNDLE_INVALID", "The staged article JSON must be an object.");
+    fail2("STAGING_BUNDLE_INVALID", "The staged article JSON must be an object.");
   }
   const declaredSlug = typeof article.slug === "string" ? article.slug : article.slug?.current;
   if (declaredSlug !== void 0 && declaredSlug !== slug2) {
-    fail("STAGING_BUNDLE_INVALID", "The staged article slug does not match its reservation.");
+    fail2("STAGING_BUNDLE_INVALID", "The staged article slug does not match its reservation.");
   }
   if (cover.length < PNG_SIGNATURE.length || !cover.subarray(0, PNG_SIGNATURE.length).equals(PNG_SIGNATURE)) {
-    fail("STAGING_BUNDLE_INVALID", "The staged cover must be a PNG image.");
+    fail2("STAGING_BUNDLE_INVALID", "The staged cover must be a PNG image.");
   }
 }
 async function assertCurrentBaseline(workspace, slug2, expected) {
   const current = await inspectBundle(workspace.blogRoot, slug2);
   if (current.state === "partial") {
-    fail("BASELINE_CHANGED", "The local article bundle changed after it was reserved.");
+    fail2("BASELINE_CHANGED", "The local article bundle changed after it was reserved.");
   }
   const actual = await digestBundle(current);
   if (!sameBaseline(expected, actual)) {
-    fail("BASELINE_CHANGED", "The local article bundle changed after it was reserved.");
+    fail2("BASELINE_CHANGED", "The local article bundle changed after it was reserved.");
   }
 }
 function transactionPairs(stagingBundle, destinationBundle, backupRoot, slug2) {
@@ -23459,7 +24079,8 @@ function transactionPairs(stagingBundle, destinationBundle, backupRoot, slug2) {
     }
   ];
 }
-var DEFAULT_TRANSACTION_OPS = Object.freeze({ rename: rename3 });
+var DEFAULT_TRANSACTION_OPS = Object.freeze({ rename: rename4 });
+var DEFAULT_CLEANUP_OPS = Object.freeze({ rm: rm4 });
 async function rollbackTransaction({ moved, backedUp, fileOps }) {
   let failed = false;
   for (const pair of [...moved].reverse()) {
@@ -23484,7 +24105,7 @@ async function commitTransaction({
   fileOps = DEFAULT_TRANSACTION_OPS
 }) {
   if (!fileOps || typeof fileOps.rename !== "function") {
-    fail("WORKSPACE_IO_FAILED", "Invalid internal filesystem operations.");
+    fail2("WORKSPACE_IO_FAILED", "Invalid internal filesystem operations.");
   }
   const backedUp = [];
   const moved = [];
@@ -23502,19 +24123,20 @@ async function commitTransaction({
   } catch {
     const rolledBack = await rollbackTransaction({ moved, backedUp, fileOps });
     if (!rolledBack) {
-      fail(
+      fail2(
         "COMMIT_ROLLBACK_FAILED",
         "The workspace commit failed and could not be fully rolled back."
       );
     }
-    fail("COMMIT_FAILED", "The workspace commit failed and was rolled back.");
+    fail2("COMMIT_FAILED", "The workspace commit failed and was rolled back.");
   }
 }
 async function commitReservation({
   slug: slug2,
   reservationId: reservationId2,
   config: config2,
-  fileOps = DEFAULT_TRANSACTION_OPS
+  fileOps = DEFAULT_TRANSACTION_OPS,
+  cleanupOps = DEFAULT_CLEANUP_OPS
 }) {
   assertSlug(slug2);
   assertReservationId(reservationId2);
@@ -23524,22 +24146,22 @@ async function commitReservation({
     slug2,
     reservationId2
   );
-  const stagingPath = path5.join(workspace.stagingRoot, reservationId2);
-  const stagingAssetsPath = path5.join(stagingPath, "assets");
+  const stagingPath = path6.join(workspace.stagingRoot, reservationId2);
+  const stagingAssetsPath = path6.join(stagingPath, "assets");
   if (await getEntryKind(stagingPath) !== "directory" || await getEntryKind(stagingAssetsPath) !== "directory") {
-    fail("INVALID_RESERVATION", "The reservation staging directory is missing or unsafe.");
+    fail2("INVALID_RESERVATION", "The reservation staging directory is missing or unsafe.");
   }
   await assertDirectory(stagingPath, { privateControl: true });
   await assertDirectory(stagingAssetsPath, { privateControl: true });
   const stagingBundle = bundlePaths(stagingPath, slug2);
   await assertCommitReady(stagingBundle, slug2);
   await assertCurrentBaseline(workspace, slug2, metadata.baseline);
-  const backupRoot = path5.join(stagingPath, ".backup");
+  const backupRoot = path6.join(stagingPath, ".backup");
   await assertDirectory(backupRoot, {
     create: true,
     privateControl: true
   });
-  await assertDirectory(path5.join(backupRoot, "assets"), {
+  await assertDirectory(path6.join(backupRoot, "assets"), {
     create: true,
     privateControl: true
   });
@@ -23547,13 +24169,21 @@ async function commitReservation({
   const pairs = transactionPairs(stagingBundle, destinationBundle, backupRoot, slug2);
   await commitTransaction({ pairs, mode: metadata.mode, fileOps });
   try {
-    await rm3(stagingPath, { recursive: true, force: true });
-    await rm3(lockPath, { recursive: true, force: true });
+    await cleanupOps.rm(stagingPath, { recursive: true, force: true });
+    await cleanupOps.rm(lockPath, { recursive: true, force: true });
   } catch {
-    fail(
+    fail2(
       "COMMIT_CLEANUP_FAILED",
       "The article was committed, but reservation cleanup failed.",
-      { committed: true }
+      {
+        committed: true,
+        slug: slug2,
+        reservationId: reservationId2,
+        mode: metadata.mode,
+        markdownPath: destinationBundle.markdownPath,
+        articlePath: destinationBundle.articlePath,
+        coverPath: destinationBundle.coverPath
+      }
     );
   }
   return {
@@ -23570,12 +24200,12 @@ async function releaseReservation({ slug: slug2, reservationId: reservationId2, 
   assertReservationId(reservationId2);
   const workspace = await openWorkspace(config2);
   const { lockPath } = await readReservationMetadata(workspace, slug2, reservationId2);
-  const stagingPath = path5.join(workspace.stagingRoot, reservationId2);
+  const stagingPath = path6.join(workspace.stagingRoot, reservationId2);
   try {
-    await rm3(stagingPath, { recursive: true, force: true });
-    await rm3(lockPath, { recursive: true, force: true });
+    await rm4(stagingPath, { recursive: true, force: true });
+    await rm4(lockPath, { recursive: true, force: true });
   } catch {
-    fail("RELEASE_FAILED", "Unable to release the workspace reservation.");
+    fail2("RELEASE_FAILED", "Unable to release the workspace reservation.");
   }
   return { slug: slug2, reservationId: reservationId2, released: true };
 }
@@ -23585,6 +24215,7 @@ function genericMessage(category) {
   if (category === "validation") return "Local article validation failed before any remote request.";
   if (category === "configuration") return "The local Sanity blog configuration is invalid.";
   if (category === "workspace") return "The local blog workspace operation failed safely.";
+  if (category === "preview") return "The local blog preview could not be generated safely.";
   if (category === "api") return "The publisher API did not return a confirmed safe result.";
   return "The local sanityblog operation failed safely.";
 }
@@ -23599,6 +24230,9 @@ function asSafeError(error2) {
       statusCode: error2.statusCode,
       requestId: error2.requestId,
       uploadedAssetIds: error2.uploadedAssetIds,
+      issues: error2 instanceof ArticleValidationError ? error2.details?.issues : void 0,
+      committed: error2 instanceof WorkspaceError && error2.details?.committed === true,
+      commitReceipt: error2 instanceof WorkspaceError && error2.details?.committed === true ? error2.details : void 0,
       safeMessage: genericMessage(error2.category),
       cause: error2
     });
@@ -23635,6 +24269,7 @@ function createBlogService({
   checkConfigImpl = checkConfig,
   recordWriter = writePublicationRecord,
   requestImpl = requestArticle,
+  previewRenderer = renderArticlePreview,
   configurationSetupLauncher,
   workspace = {
     preparePublish,
@@ -23663,6 +24298,22 @@ function createBlogService({
       ...timeoutMs === void 0 ? {} : { timeoutMs },
       ...options
     });
+  }
+  async function requireAcceptedPreview(articleSnapshot, previewRevision2) {
+    if (typeof previewRevision2 !== "string" || !/^[0-9a-f]{64}$/u.test(previewRevision2)) {
+      throw new PreviewError(
+        "PREVIEW_REVISION_INVALID",
+        "A valid accepted preview revision is required before any remote request."
+      );
+    }
+    const preview = await previewRenderer(articleSnapshot);
+    if (preview?.previewRevision !== previewRevision2) {
+      throw new PreviewError(
+        "PREVIEW_REVISION_MISMATCH",
+        "The article bundle no longer matches the accepted local preview."
+      );
+    }
+    return preview;
   }
   async function probePublishSnapshot(articleSnapshot, config2, createPublishedAt) {
     try {
@@ -23777,9 +24428,16 @@ function createBlogService({
         return describeArticleSnapshot(articleSnapshot);
       });
     },
-    probePublish(articlePath2) {
+    preview(articlePath2) {
+      return run(async () => {
+        const { articleSnapshot } = await snapshot(articlePath2);
+        return previewRenderer(articleSnapshot);
+      });
+    },
+    probePublish(articlePath2, previewRevision2) {
       return run(async () => {
         const { config: config2, articleSnapshot } = await snapshot(articlePath2);
+        await requireAcceptedPreview(articleSnapshot, previewRevision2);
         const createPublishedAt = clock().toISOString();
         const outcome = await probePublishSnapshot(
           articleSnapshot,
@@ -23791,6 +24449,7 @@ function createBlogService({
           mode: outcome.mode,
           slug: articleSnapshot.slug,
           articlePath: articleSnapshot.articlePath,
+          previewRevision: previewRevision2,
           ...outcome.mode === "create" ? { publishedAt: outcome.createPublishedAt } : {
             id: outcome.probe.id,
             revision: outcome.probe.revision
@@ -23801,9 +24460,10 @@ function createBlogService({
         };
       });
     },
-    probeUpdate(articlePath2) {
+    probeUpdate(articlePath2, previewRevision2) {
       return run(async () => {
         const { config: config2, articleSnapshot } = await snapshot(articlePath2);
+        await requireAcceptedPreview(articleSnapshot, previewRevision2);
         const outcome = await remoteRequest(
           "update-dry-run",
           articleSnapshot,
@@ -23814,6 +24474,7 @@ function createBlogService({
           mode: "update",
           slug: articleSnapshot.slug,
           articlePath: articleSnapshot.articlePath,
+          previewRevision: previewRevision2,
           id: outcome.result.id,
           revision: outcome.result.revision,
           requestId: outcome.result.requestId,
@@ -23822,9 +24483,10 @@ function createBlogService({
         };
       });
     },
-    publish(articlePath2) {
+    publish(articlePath2, previewRevision2) {
       return run(async () => {
         const { config: config2, articleSnapshot } = await snapshot(articlePath2);
+        await requireAcceptedPreview(articleSnapshot, previewRevision2);
         const createPublishedAt = clock().toISOString();
         const outcome = await probePublishSnapshot(
           articleSnapshot,
@@ -23848,13 +24510,15 @@ function createBlogService({
           operation,
           ...final.result,
           articlePath: articleSnapshot.articlePath,
+          previewRevision: previewRevision2,
           recordPath
         };
       });
     },
-    update(articlePath2) {
+    update(articlePath2, previewRevision2) {
       return run(async () => {
         const { config: config2, articleSnapshot } = await snapshot(articlePath2);
+        await requireAcceptedPreview(articleSnapshot, previewRevision2);
         const probe = await remoteRequest(
           "update-dry-run",
           articleSnapshot,
@@ -23875,6 +24539,7 @@ function createBlogService({
           operation,
           ...final.result,
           articlePath: articleSnapshot.articlePath,
+          previewRevision: previewRevision2,
           recordPath
         };
       });
@@ -23884,15 +24549,17 @@ function createBlogService({
 
 // src/server.mjs
 var slug = external_exports.string().min(1).max(96).regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/u);
-var articlePath = external_exports.string().min(1).max(4096).refine((value) => path6.isAbsolute(value), "articlePath must be absolute");
+var articlePath = external_exports.string().min(1).max(4096).refine((value) => path7.isAbsolute(value), "articlePath must be absolute");
 var reservationId = external_exports.string().uuid().refine(
   (value) => /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(value),
   "reservationId must be a UUID v4"
 );
+var previewRevision = external_exports.string().regex(/^[0-9a-f]{64}$/u);
 var EMPTY_INPUT = external_exports.object({}).strict();
 var BASE_SLUG_INPUT = external_exports.object({ baseSlug: slug }).strict();
 var SLUG_INPUT = external_exports.object({ slug }).strict();
 var ARTICLE_INPUT = external_exports.object({ articlePath }).strict();
+var PREVIEWED_ARTICLE_INPUT = external_exports.object({ articlePath, previewRevision }).strict();
 var RESERVATION_INPUT = external_exports.object({ slug, reservationId }).strict();
 var READ_ONLY = Object.freeze({
   readOnlyHint: true,
@@ -23904,6 +24571,12 @@ var LOCAL_WRITE = Object.freeze({
   readOnlyHint: false,
   destructiveHint: false,
   idempotentHint: false,
+  openWorldHint: false
+});
+var LOCAL_RENDER = Object.freeze({
+  readOnlyHint: false,
+  destructiveHint: false,
+  idempotentHint: true,
   openWorldHint: false
 });
 var LOCAL_DESTRUCTIVE = Object.freeze({
@@ -23992,24 +24665,34 @@ function registerBlogTools(server, service) {
     safeHandler(({ articlePath: value }) => service.validate(value))
   );
   server.registerTool(
+    "sanity_blog_preview",
+    {
+      title: "Render a local Sanity blog preview",
+      description: "Validates the article JSON and local images, requires the sibling Markdown source, and writes a safe bilingual HTML preview without any remote request.",
+      inputSchema: ARTICLE_INPUT,
+      annotations: LOCAL_RENDER
+    },
+    safeHandler(({ articlePath: value }) => service.preview(value))
+  );
+  server.registerTool(
     "sanity_blog_probe_publish",
     {
       title: "Probe a Sanity blog publish",
-      description: "Runs one POST dry-run and only after a sanitized slug conflict runs one PUT dry-run; it performs no final article mutation.",
-      inputSchema: ARTICLE_INPUT,
+      description: "Revalidates the exact accepted local preview revision, then runs one POST dry-run and only after a sanitized slug conflict runs one PUT dry-run; it performs no final article mutation.",
+      inputSchema: PREVIEWED_ARTICLE_INPUT,
       annotations: REMOTE_PROBE
     },
-    safeHandler(({ articlePath: value }) => service.probePublish(value))
+    safeHandler(({ articlePath: value, previewRevision: revision }) => service.probePublish(value, revision))
   );
   server.registerTool(
     "sanity_blog_probe_update",
     {
       title: "Probe a strict Sanity blog update",
-      description: "Runs only a PUT dry-run for an existing remote article and returns its guarded revision.",
-      inputSchema: ARTICLE_INPUT,
+      description: "Revalidates the exact accepted local preview revision, then runs only a PUT dry-run for an existing remote article and returns its guarded revision.",
+      inputSchema: PREVIEWED_ARTICLE_INPUT,
       annotations: REMOTE_PROBE
     },
-    safeHandler(({ articlePath: value }) => service.probeUpdate(value))
+    safeHandler(({ articlePath: value, previewRevision: revision }) => service.probeUpdate(value, revision))
   );
   server.registerTool(
     "sanity_blog_commit",
@@ -24025,7 +24708,7 @@ function registerBlogTools(server, service) {
     "sanity_blog_release",
     {
       title: "Release a Sanity blog reservation",
-      description: "Releases only the matching uncommitted local reservation and its staging bundle.",
+      description: "Releases the matching reservation and any remaining staging bundle, including one cleanup attempt after a confirmed committed result whose automatic cleanup failed.",
       inputSchema: RESERVATION_INPUT,
       annotations: LOCAL_DESTRUCTIVE
     },
@@ -24035,21 +24718,21 @@ function registerBlogTools(server, service) {
     "sanity_blog_publish",
     {
       title: "Publish a Sanity blog article",
-      description: "Validates locally, probes create, safely falls back to guarded update only on a sanitized conflict, performs one final mutation, and writes the local publication record.",
-      inputSchema: ARTICLE_INPUT,
+      description: "Revalidates the exact accepted local preview revision, probes create, safely falls back to guarded update only on a sanitized conflict, performs one final mutation, and writes the local publication record.",
+      inputSchema: PREVIEWED_ARTICLE_INPUT,
       annotations: REMOTE_MUTATION
     },
-    safeHandler(({ articlePath: value }) => service.publish(value))
+    safeHandler(({ articlePath: value, previewRevision: revision }) => service.publish(value, revision))
   );
   server.registerTool(
     "sanity_blog_update",
     {
       title: "Strictly update a Sanity blog article",
-      description: "Validates locally, obtains a revision through a PUT dry-run, performs one revision-guarded PUT, and never creates an article.",
-      inputSchema: ARTICLE_INPUT,
+      description: "Revalidates the exact accepted local preview revision, obtains a revision through a PUT dry-run, performs one revision-guarded PUT, and never creates an article.",
+      inputSchema: PREVIEWED_ARTICLE_INPUT,
       annotations: REMOTE_MUTATION
     },
-    safeHandler(({ articlePath: value }) => service.update(value))
+    safeHandler(({ articlePath: value, previewRevision: revision }) => service.update(value, revision))
   );
 }
 function createMcpServer({ service = createBlogService() } = {}) {
@@ -24068,7 +24751,7 @@ async function startServer({ transport = new StdioServerTransport(), service } =
 async function main() {
   await startServer();
 }
-if (process.argv[1] && path6.resolve(process.argv[1]) === fileURLToPath2(import.meta.url)) {
+if (process.argv[1] && path7.resolve(process.argv[1]) === fileURLToPath2(import.meta.url)) {
   main().catch(() => {
     console.error("sanityblog MCP server failed");
     process.exitCode = 1;
