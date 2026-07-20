@@ -8,7 +8,7 @@
       "name": "sanityblog",
       "source": {
         "source": "url",
-        "url": "https://github.com/1nv0ker/dashboard.git",
+        "url": "https://github.com/1nv0ker/blog.git",
         "ref": "main"
       },
       "policy": {

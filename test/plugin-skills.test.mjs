@@ -47,7 +47,7 @@ test('package and dual plugin manifests expose pinned compatible metadata', asyn
   const marketplacePlugin = marketplace.plugins.find((entry) => entry.name === 'sanityblog')
   assert.deepEqual(marketplacePlugin.source, {
     source: 'url',
-    url: 'https://github.com/1nv0ker/dashboard.git',
+    url: 'https://github.com/1nv0ker/blog.git',
     ref: 'main',
   })
   assert.equal(marketplacePlugin.policy.installation, 'AVAILABLE')
@@ -151,7 +151,7 @@ test('one-click installer and minimal configuration are packaged', async () => {
 test('README documents one-click installation, broad MCP compatibility, and records', async () => {
   const readme = await text('README.md')
   for (const phrase of [
-    'codex plugin marketplace add https://github.com/1nv0ker/dashboard --ref main',
+    'codex plugin marketplace add https://github.com/1nv0ker/blog --ref main',
     'codex plugin add sanityblog@sanityblog',
     '不支持把 Git URL 直接作为 `plugin add` 的参数',
     'dist/server.mjs',
@@ -159,7 +159,7 @@ test('README documents one-click installation, broad MCP compatibility, and reco
     'sanity_blog_start_config_setup',
     '固定持久化 **4 项**',
     '不需要预先安装 Git、Node.js 或 npm',
-    'raw.githubusercontent.com/1nv0ker/dashboard/main/install.ps1',
+    'raw.githubusercontent.com/1nv0ker/blog/main/install.ps1',
     'Node.js 22.23.1',
     'Node.js 22.12',
     'npm install',

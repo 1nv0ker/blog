@@ -2,20 +2,20 @@
 
 `sanityblog` 是一个本机 Node.js stdio MCP Server 插件，用于准备、校验、探测、发布和更新博客文章。插件把“发布新文章”和“更新现有文章”拆成两个必须显式调用的技能，并把真正的远端写入留在最后一步确认之后。
 
-源码仓库：[1nv0ker/dashboard](https://github.com/1nv0ker/dashboard)
+源码仓库：[1nv0ker/blog](https://github.com/1nv0ker/blog)
 
 ## Codex 从 GitHub 安装
 
 当前 Codex CLI 不支持把 Git URL 直接作为 `plugin add` 的参数，因此下面这条精确命令会在下载仓库之前被 CLI 拒绝：
 
 ```powershell
-codex plugin add https://github.com/1nv0ker/dashboard
+codex plugin add https://github.com/1nv0ker/blog
 ```
 
 仓库已经按 Codex Git marketplace 结构提供 `.agents/plugins/marketplace.json`。当前官方支持的确定安装流程是：
 
 ```powershell
-codex plugin marketplace add https://github.com/1nv0ker/dashboard --ref main
+codex plugin marketplace add https://github.com/1nv0ker/blog --ref main
 codex plugin add sanityblog@sanityblog
 ```
 
@@ -54,12 +54,12 @@ MCP tools 是广泛兼容层：只要客户端支持本地 stdio MCP，就可以
 
 ## Windows 一键安装（推荐）
 
-源码仓库：[1nv0ker/dashboard](https://github.com/1nv0ker/dashboard)。64 位 Windows（x64 或 ARM64）只需 PowerShell 和网络连接，**不需要预先安装 Git、Node.js 或 npm**。
+源码仓库：[1nv0ker/blog](https://github.com/1nv0ker/blog)。64 位 Windows（x64 或 ARM64）只需 PowerShell 和网络连接，**不需要预先安装 Git、Node.js 或 npm**。
 
 在 PowerShell 中运行一条命令：
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -Command "irm 'https://raw.githubusercontent.com/1nv0ker/dashboard/main/install.ps1' | iex"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "irm 'https://raw.githubusercontent.com/1nv0ker/blog/main/install.ps1' | iex"
 ```
 
 安装器只会要求发布目标与初始 Sanity 配置：
@@ -90,7 +90,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command "irm 'https://raw.githubu
 
 ```powershell
 $installer = Join-Path $env:TEMP 'sanityblog-install.ps1'
-Invoke-WebRequest 'https://raw.githubusercontent.com/1nv0ker/dashboard/main/install.ps1' -OutFile $installer
+Invoke-WebRequest 'https://raw.githubusercontent.com/1nv0ker/blog/main/install.ps1' -OutFile $installer
 Get-Content $installer
 powershell -NoProfile -ExecutionPolicy Bypass -File $installer
 ```
@@ -291,7 +291,7 @@ VS Code/Copilot Agent Plugins 也可读取仓库内 Claude 格式 manifest；`.v
 需要在非 Windows 平台直接从源码运行时，安装 Node.js 22.12 或更高版本：
 
 ```bash
-git clone https://github.com/1nv0ker/dashboard.git sanityblog
+git clone https://github.com/1nv0ker/blog.git sanityblog
 cd sanityblog
 npm install
 node src/cli.mjs --init
@@ -463,7 +463,7 @@ $plugin = Join-Path $HOME 'plugins\sanityblog'
 以下命令仅供仓库开发者使用；一键安装用户不需要安装系统 Node.js 或运行测试。开发环境要求 Node.js 22.12+：
 
 ```powershell
-git clone https://github.com/1nv0ker/dashboard.git sanityblog
+git clone https://github.com/1nv0ker/blog.git sanityblog
 Set-Location sanityblog
 npm install
 npm run check

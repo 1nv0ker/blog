@@ -218,7 +218,7 @@ test("Windows installer pins downloads and never accepts a credential argument",
   assert.match(installer, /\$NodeVersion = "22\.23\.1"/u);
   assert.match(
     installer,
-    /github\.com\/1nv0ker\/dashboard\/archive\/refs\/heads\/main\.zip/u,
+    /github\.com\/1nv0ker\/blog\/archive\/refs\/heads\/main\.zip/u,
   );
   assert.match(installer, /nodejs\.org\/download\/release/u);
   assert.match(

@@ -15,7 +15,7 @@ $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 
 $NodeVersion = "22.23.1"
-$GitHubMainArchiveUrl = "https://github.com/1nv0ker/dashboard/archive/refs/heads/main.zip"
+$GitHubMainArchiveUrl = "https://github.com/1nv0ker/blog/archive/refs/heads/main.zip"
 $NodeReleaseRoot = "https://nodejs.org/download/release/v$NodeVersion"
 $ExpectedNodeHashes = @{
     "win-x64" = "7df0bc9375723f4a86b3aa1b7cc73342423d9677a8df4538aca31a049e309c29"
