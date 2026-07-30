@@ -187,50 +187,32 @@ test('one-click installer and minimal configuration are packaged', async () => {
   assert.doesNotMatch(installer, /--(?:sanity-)?token\b/iu)
 })
 
-test('README documents one-click installation, broad MCP compatibility, and records', async () => {
+test('README stays concise and covers only installation, initialization, and skills', async () => {
   const readme = await text('README.md')
   for (const phrase of [
     'codex plugin marketplace add https://github.com/1nv0ker/blog --ref main',
     'codex plugin add sanityblog@sanityblog',
-    '不支持把 Git URL 直接作为 `plugin add` 的参数',
-    'dist/server.mjs',
-    'dist/cli.mjs',
-    'sanity_blog_start_config_setup',
-    '固定持久化 **4 项**',
     '不需要预先安装 Git、Node.js 或 npm',
     'raw.githubusercontent.com/1nv0ker/blog/main/install.ps1',
-    'Node.js 22.23.1',
     'Node.js 22.12',
     'npm install',
-    'SANITY_BLOG_PUBLISHER_API_ORIGIN',
-    'SANITY_BLOG_PROJECT_ID',
-    'SANITY_BLOG_DATASET',
-    'SANITY_BLOG_TOKEN',
+    'publisherApiOrigin',
+    'projectId',
+    'dataset',
+    'sanityToken',
     '~/.sanity-blog/workspace',
     '--init',
     '--check',
-    'INSTALLED_BY_DEFAULT / ON_INSTALL',
-    'Codex',
-    'Claude Desktop',
-    'Claude Code',
-    'Cursor',
-    'VS Code',
-    'GitHub Copilot',
-    'Windsurf',
-    'Cline',
-    'macOS/Linux',
-    '~/.sanity-blog/published/<slug>.json',
-    'PUBLISHED_BUT_RECORD_WRITE_FAILED',
-    'remoteMutationSucceeded',
-    'additionalProperties: false',
-    'Agent Skills',
-    '裸 HTTPS origin',
+    'sanity-blog-preview',
+    'sanity-blog-publish',
+    'sanity-blog-update',
+    'previewRevision',
   ]) {
     assert.ok(readme.includes(phrase), `README is missing ${phrase}`)
   }
-  assert.match(readme, /"command": "C:\\\\Users\\\\YOUR_NAME.*runtime\\\\node\.exe"/u)
-  assert.match(readme, /"args": \[/u)
-  assert.match(readme, /同一 slug/u)
-  assert.match(readme, /原子/u)
-  assert.match(readme, /符号链接|symlink/u)
+  assert.deepEqual(
+    [...readme.matchAll(/^## .+$/gmu)].map(([heading]) => heading),
+    ['## 如何安装', '## 如何初始化配置', '## 技能概览'],
+  )
+  assert.ok(readme.length < 5000, 'README should remain concise')
 })
