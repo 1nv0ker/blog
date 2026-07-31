@@ -1,0 +1,6 @@
+interface:
+  display_name: "Sanity Guide Preview"
+  short_description: "Preview bilingual guide content safely"
+  default_prompt: "Use $sanity-content-guide-preview to preview one bilingual guide document safely."
+policy:
+  allow_implicit_invocation: false

@@ -1,0 +1,6 @@
+interface:
+  display_name: "Sanity Comparison Update"
+  short_description: "Update bilingual comparison content safely"
+  default_prompt: "Use $sanity-content-comparison-update to update one bilingual comparison document safely."
+policy:
+  allow_implicit_invocation: false

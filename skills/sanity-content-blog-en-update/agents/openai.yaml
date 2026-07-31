@@ -1,0 +1,6 @@
+interface:
+  display_name: "Sanity Blog EN Update"
+  short_description: "Update bilingual blog-en content safely"
+  default_prompt: "Use $sanity-content-blog-en-update to update one bilingual blog-en document safely."
+policy:
+  allow_implicit_invocation: false

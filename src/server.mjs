@@ -10,6 +10,8 @@ import {z} from 'zod'
 import {PLUGIN_NAME, PLUGIN_VERSION} from './constants.mjs'
 import {toSafeErrorResult} from './errors.mjs'
 import {asSafeError, createBlogService} from './service.mjs'
+import {createContentService} from './content-service.mjs'
+import {registerContentTools} from './content-server.mjs'
 
 const slug = z
   .string()
@@ -245,17 +247,25 @@ export function registerBlogTools(server, service) {
   )
 }
 
-export function createMcpServer({service = createBlogService()} = {}) {
+export function createMcpServer({
+  service = createBlogService(),
+  contentService = createContentService(),
+} = {}) {
   const server = new McpServer(
     {name: PLUGIN_NAME, version: PLUGIN_VERSION},
     {capabilities: {tools: {}}},
   )
   registerBlogTools(server, service)
+  registerContentTools(server, contentService)
   return server
 }
 
-export async function startServer({transport = new StdioServerTransport(), service} = {}) {
-  const server = createMcpServer({service})
+export async function startServer({
+  transport = new StdioServerTransport(),
+  service,
+  contentService,
+} = {}) {
+  const server = createMcpServer({service, contentService})
   await server.connect(transport)
   return server
 }

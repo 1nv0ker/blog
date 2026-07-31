@@ -1,11 +1,11 @@
 ---
 name: sanity-blog-update
-description: Research, revise, validate, probe, and update an existing bilingual English and Chinese blog article with a compliant PNG cover through the bundled sanityblog MCP server. Use only when the user explicitly asks to change an identified existing post and accepts a remote write; never use to create a missing post or for read-only review.
+description: Research, revise, validate, probe, and update one existing legacy blog-post document with bilingual English and Chinese content and a compliant PNG cover through the bundled sanityblog MCP server. Use only when the user explicitly asks to change an identified existing blog-post and accepts a remote write; do not use for blog-en or another rich content type, and never create a missing post.
 ---
 
 # Sanity Blog Update
 
-Update one existing article through the bundled local MCP server. Treat the final update call as an external write. Preserve the existing remote identity and keep the staged files and safe receipt as the source of truth for the attempt.
+Update one existing legacy `blog-post` through the bundled local MCP server. Treat the final update call as an external write. Preserve the existing remote identity and keep the staged files and safe receipt as the source of truth for the attempt.
 
 ## Required MCP tools
 

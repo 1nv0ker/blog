@@ -1,0 +1,6 @@
+interface:
+  display_name: "Sanity Guide Publish"
+  short_description: "Publish bilingual guide content safely"
+  default_prompt: "Use $sanity-content-guide-publish to publish one bilingual guide document safely."
+policy:
+  allow_implicit_invocation: false

@@ -1,0 +1,6 @@
+interface:
+  display_name: "Sanity Blog EN Preview"
+  short_description: "Preview bilingual blog-en content safely"
+  default_prompt: "Use $sanity-content-blog-en-preview to preview one bilingual blog-en document safely."
+policy:
+  allow_implicit_invocation: false

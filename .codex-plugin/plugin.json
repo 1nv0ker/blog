@@ -1,7 +1,7 @@
 {
   "name": "sanityblog",
-  "version": "0.1.0+codex.20260720151212",
-  "description": "Safely draft, visually preview, publish, and update blog content through a local stdio MCP server.",
+  "version": "0.2.0+codex.20260731114512",
+  "description": "Safely preview, publish, and update seven Sanity content types through 21 explicit skills and a local stdio MCP server.",
   "author": {
     "name": "Local developer"
   },
@@ -22,9 +22,9 @@
     }
   },
   "interface": {
-    "displayName": "Sanity Blog",
-    "shortDescription": "Preview, publish, and update blog content safely",
-    "longDescription": "Three explicit workflows for locally previewing, publishing, and updating bilingual blog content through a local MCP server, with safe HTML rendering, durable receipts, and partial-success handling.",
+    "displayName": "Sanity Blog & Content",
+    "shortDescription": "Preview and publish Sanity content safely",
+    "longDescription": "Twenty-one type-specific workflows for locally previewing, publishing, and updating bilingual legacy blog posts and API 1.1 rich content through a local MCP server, with safe HTML rendering, durable receipts, and partial-success handling.",
     "category": "Productivity",
     "developerName": "Local developer",
     "capabilities": [
@@ -32,7 +32,7 @@
       "Write"
     ],
     "defaultPrompt": [
-      "Use Sanity Blog Preview, Sanity Blog Publish, or Sanity Blog Update for the requested blog workflow."
+      "Use the matching type-specific Sanity skill to preview, publish, or update bilingual content safely."
     ]
   }
 }

@@ -12,7 +12,7 @@ import {ArticleValidationError} from '../src/article.mjs'
 import {createMcpServer} from '../src/server.mjs'
 import {WorkspaceError} from '../src/workspace.mjs'
 
-const EXPECTED_TOOLS = [
+const EXPECTED_BLOG_TOOLS = [
   'sanity_blog_check_config',
   'sanity_blog_start_config_setup',
   'sanity_blog_prepare_publish',
@@ -26,6 +26,23 @@ const EXPECTED_TOOLS = [
   'sanity_blog_publish',
   'sanity_blog_update',
 ]
+
+const EXPECTED_CONTENT_TOOLS = [
+  'sanity_content_check_config',
+  'sanity_content_start_config_setup',
+  'sanity_content_prepare_publish',
+  'sanity_content_prepare_update',
+  'sanity_content_validate',
+  'sanity_content_preview',
+  'sanity_content_probe_publish',
+  'sanity_content_probe_update',
+  'sanity_content_commit',
+  'sanity_content_release',
+  'sanity_content_publish',
+  'sanity_content_update',
+]
+
+const EXPECTED_TOOLS = [...EXPECTED_BLOG_TOOLS, ...EXPECTED_CONTENT_TOOLS]
 
 function stubService(overrides = {}) {
   return {
@@ -76,6 +93,10 @@ test('MCP initializes and lists all strict tool schemas with annotations', async
   assert.deepEqual(
     listed.tools.map((tool) => tool.name),
     EXPECTED_TOOLS,
+  )
+  assert.deepEqual(
+    listed.tools.slice(0, EXPECTED_BLOG_TOOLS.length).map((tool) => tool.name),
+    EXPECTED_BLOG_TOOLS,
   )
   for (const tool of listed.tools) {
     assert.equal(tool.inputSchema.type, 'object')

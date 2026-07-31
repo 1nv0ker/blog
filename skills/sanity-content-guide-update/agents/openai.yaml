@@ -1,0 +1,6 @@
+interface:
+  display_name: "Sanity Guide Update"
+  short_description: "Update bilingual guide content safely"
+  default_prompt: "Use $sanity-content-guide-update to update one bilingual guide document safely."
+policy:
+  allow_implicit_invocation: false

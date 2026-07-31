@@ -1,0 +1,6 @@
+interface:
+  display_name: "Sanity Tutorial Update"
+  short_description: "Update bilingual tutorial content safely"
+  default_prompt: "Use $sanity-content-tutorial-update to update one bilingual tutorial document safely."
+policy:
+  allow_implicit_invocation: false

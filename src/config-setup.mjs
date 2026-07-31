@@ -3,7 +3,10 @@ import os from 'node:os'
 import path from 'node:path'
 import {fileURLToPath} from 'node:url'
 
-import {DEFAULT_PUBLISHER_API_ORIGIN} from './constants.mjs'
+import {
+  DEFAULT_PUBLIC_SITE_ORIGIN,
+  DEFAULT_PUBLISHER_API_ORIGIN,
+} from './constants.mjs'
 
 export const CONFIGURATION_FIELDS = Object.freeze([
   'publisherApiOrigin',
@@ -15,6 +18,11 @@ export const CONFIGURATION_FIELDS = Object.freeze([
 export const REQUIRED_CONFIGURATION_FIELDS = Object.freeze([
   'projectId',
   'sanityToken',
+])
+
+export const CONTENT_CONFIGURATION_FIELDS = Object.freeze([
+  ...CONFIGURATION_FIELDS,
+  'publicSiteOrigin',
 ])
 
 const REINITIALIZABLE_CONFIGURATION_CODES = new Set([
@@ -60,10 +68,17 @@ catch {
 }
 try {
   Write-Host "Sanity Blog configuration setup"
-  Write-Host "Enter four values. Press Enter to accept displayed defaults; token input is hidden."
+  $setupArgument = "--init"
+  if ($env:SANITY_BLOG_SETUP_MODE -eq "content") {
+    $setupArgument = "--init-content"
+    Write-Host "Enter five values. Press Enter to accept displayed defaults; token input is hidden."
+  }
+  else {
+    Write-Host "Enter four values. Press Enter to accept displayed defaults; token input is hidden."
+  }
   while ($true) {
     Write-Host ""
-    & $env:SANITY_BLOG_SETUP_NODE $env:SANITY_BLOG_SETUP_CLI --init
+    & $env:SANITY_BLOG_SETUP_NODE $env:SANITY_BLOG_SETUP_CLI $setupArgument
     $setupExitCode = $LASTEXITCODE
     Write-Host ""
     if ($setupExitCode -eq 0) {
@@ -146,10 +161,10 @@ function windowsPowerShellPath(environment) {
   )
 }
 
-function manualCommand(execPath, cliPath) {
+function manualCommand(execPath, cliPath, setupMode) {
   return {
     command: execPath,
-    args: [cliPath, '--init'],
+    args: [cliPath, setupMode === 'content' ? '--init-content' : '--init'],
   }
 }
 
@@ -170,8 +185,12 @@ export function createConfigurationSetupLauncher({
   clock = Date.now,
   cooldownMs = 60_000,
   launchTimeoutMs = 10_000,
+  setupMode = 'blog',
 } = {}) {
-  const command = manualCommand(execPath, cliPath)
+  if (!['blog', 'content'].includes(setupMode)) {
+    throw new TypeError('setupMode must be blog or content')
+  }
+  const command = manualCommand(execPath, cliPath, setupMode)
   let lastStartedAt
   let pendingLaunch
 
@@ -220,6 +239,7 @@ export function createConfigurationSetupLauncher({
         : path.dirname(cliPath)
       childEnvironment.SANITY_BLOG_SETUP_POWERSHELL = powershellPath
       childEnvironment.SANITY_BLOG_SETUP_COMMAND = INNER_SETUP_COMMAND
+      if (setupMode === 'content') childEnvironment.SANITY_BLOG_SETUP_MODE = 'content'
 
       const launch = (async () => {
         const launchError = await new Promise((resolve) => {
@@ -283,5 +303,23 @@ export function configurationSetupSummary(launchResult) {
     nextStep: launchResult.setupStarted || launchResult.setupAlreadyRunning
       ? 'Complete the separate setup terminal, then call sanity_blog_check_config again.'
       : 'Run the manual setup command in an interactive terminal, then call sanity_blog_check_config again.',
+  }
+}
+
+export function contentConfigurationSetupSummary(launchResult) {
+  return {
+    configured: false,
+    ...launchResult,
+    configurationFieldCount: CONTENT_CONFIGURATION_FIELDS.length,
+    configurationFields: [...CONTENT_CONFIGURATION_FIELDS],
+    requiredFields: [...REQUIRED_CONFIGURATION_FIELDS],
+    defaults: {
+      publisherApiOrigin: DEFAULT_PUBLISHER_API_ORIGIN,
+      dataset: 'production',
+      publicSiteOrigin: DEFAULT_PUBLIC_SITE_ORIGIN,
+    },
+    nextStep: launchResult.setupStarted || launchResult.setupAlreadyRunning
+      ? 'Complete the separate setup terminal, then call sanity_content_check_config again.'
+      : 'Run the manual setup command in an interactive terminal, then call sanity_content_check_config again.',
   }
 }

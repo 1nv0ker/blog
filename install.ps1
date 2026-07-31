@@ -21,6 +21,34 @@ $ExpectedNodeHashes = @{
     "win-x64" = "7df0bc9375723f4a86b3aa1b7cc73342423d9677a8df4538aca31a049e309c29"
     "win-arm64" = "b470fdfe3502c05151656e06d495e3f47544f2ee8b1d9c8705090f2dd5996bd0"
 }
+$ExpectedSkillDirectories = @(
+    "sanity-blog-preview",
+    "sanity-blog-publish",
+    "sanity-blog-update",
+    "sanity-content-alternative-preview",
+    "sanity-content-alternative-publish",
+    "sanity-content-alternative-update",
+    "sanity-content-blog-en-preview",
+    "sanity-content-blog-en-publish",
+    "sanity-content-blog-en-update",
+    "sanity-content-comparison-preview",
+    "sanity-content-comparison-publish",
+    "sanity-content-comparison-update",
+    "sanity-content-guide-preview",
+    "sanity-content-guide-publish",
+    "sanity-content-guide-update",
+    "sanity-content-solution-preview",
+    "sanity-content-solution-publish",
+    "sanity-content-solution-update",
+    "sanity-content-tutorial-preview",
+    "sanity-content-tutorial-publish",
+    "sanity-content-tutorial-update"
+)
+$ForbiddenGenericSkillDirectories = @(
+    "sanity-content-preview",
+    "sanity-content-publish",
+    "sanity-content-update"
+)
 
 function Resolve-NormalizedPath {
     param(
@@ -204,6 +232,8 @@ function Assert-SourceTree {
     )
 
     foreach ($requiredPath in @(
+        ".claude-plugin\plugin.json",
+        ".codex-plugin\plugin.json",
         "package.json",
         "package-lock.json",
         "src\server.mjs",
@@ -214,6 +244,54 @@ function Assert-SourceTree {
     )) {
         if (-not (Test-Path -LiteralPath (Join-Path $Path $requiredPath) -PathType Leaf)) {
             throw "Source is missing required file: $requiredPath"
+        }
+    }
+
+    $skillsPath = Join-Path $Path "skills"
+    if (-not (Test-Path -LiteralPath $skillsPath -PathType Container)) {
+        throw "Source is missing required directory: skills"
+    }
+
+    foreach ($genericSkill in $ForbiddenGenericSkillDirectories) {
+        if (Test-Path -LiteralPath (Join-Path $skillsPath $genericSkill)) {
+            throw "Source contains forbidden generic skill directory: $genericSkill"
+        }
+    }
+
+    $expectedSkills = @($ExpectedSkillDirectories | Sort-Object)
+    $actualSkills = @(
+        Get-ChildItem -LiteralPath $skillsPath -Directory -Force |
+            Sort-Object -Property Name |
+            ForEach-Object { $_.Name }
+    )
+    if ($actualSkills.Count -ne $expectedSkills.Count) {
+        throw (
+            "Source must contain exactly $($expectedSkills.Count) skill directories; " +
+            "found $($actualSkills.Count)."
+        )
+    }
+    for ($index = 0; $index -lt $expectedSkills.Count; $index += 1) {
+        if (-not [System.StringComparer]::Ordinal.Equals(
+            $actualSkills[$index],
+            $expectedSkills[$index]
+        )) {
+            throw (
+                "Source skill inventory is invalid. Expected " +
+                "$($expectedSkills -join ', '); found $($actualSkills -join ', ')."
+            )
+        }
+    }
+
+    foreach ($skillDirectory in $ExpectedSkillDirectories) {
+        foreach ($requiredSkillPath in @("SKILL.md", "agents\openai.yaml")) {
+            $relativeSkillPath = Join-Path $skillDirectory $requiredSkillPath
+            if (-not (
+                Test-Path `
+                    -LiteralPath (Join-Path $skillsPath $relativeSkillPath) `
+                    -PathType Leaf
+            )) {
+                throw "Source is missing required skill file: skills\$relativeSkillPath"
+            }
         }
     }
 }

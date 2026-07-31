@@ -1,17 +1,19 @@
 {
   "name": "sanityblog",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
-  "description": "Local stdio MCP server and explicit Agent Skills for safe Sanity blog previewing, publishing, and updating.",
+  "description": "Local stdio MCP server and 21 type-specific Agent Skills for safe Sanity blog and rich-content previewing, publishing, and updating.",
   "type": "module",
   "engines": {
     "node": ">=22.12"
   },
   "scripts": {
     "build": "node scripts/build.mjs",
+    "generate:skills": "node scripts/generate-content-skills.mjs --write",
+    "check:skills": "node scripts/generate-content-skills.mjs --check",
     "start": "node src/server.mjs",
     "check": "node src/cli.mjs --check",
-    "pretest": "npm run build",
+    "pretest": "npm run check:skills && npm run build",
     "test": "node --test --test-concurrency=1"
   },
   "dependencies": {

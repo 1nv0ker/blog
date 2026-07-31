@@ -55,11 +55,17 @@ function sanitizeCommitReceipt(value) {
     return undefined;
   }
   const receipt = { committed: true };
-  for (const key of ["slug", "reservationId", "mode"]) {
+  for (const key of ["contentType", "slug", "reservationId", "mode"]) {
     const cleaned = cleanOptionalString(value[key]);
     if (cleaned !== undefined) receipt[key] = cleaned;
   }
-  for (const key of ["markdownPath", "articlePath", "coverPath"]) {
+  for (const key of [
+    "bundlePath",
+    "markdownPath",
+    "articlePath",
+    "assetsDirectory",
+    "coverPath",
+  ]) {
     const cleaned = cleanOptionalString(value[key], 4096);
     if (cleaned !== undefined) receipt[key] = cleaned;
   }
@@ -72,7 +78,15 @@ function sanitizeReceipt(value) {
   }
 
   const receipt = {};
-  for (const key of ["status", "id", "revision", "slug", "requestId", "operation"]) {
+  for (const key of [
+    "status",
+    "id",
+    "revision",
+    "slug",
+    "contentType",
+    "requestId",
+    "operation",
+  ]) {
     const cleaned = cleanOptionalString(value[key]);
     if (cleaned) {
       receipt[key] = cleaned;

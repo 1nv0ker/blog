@@ -15,6 +15,7 @@ import { promisify } from "node:util";
 import { execFile } from "node:child_process";
 
 import {
+  DEFAULT_PUBLIC_SITE_ORIGIN,
   DEFAULT_PUBLISHER_API_ORIGIN,
   DEFAULT_SANITY_API_VERSION,
 } from "./constants.mjs";
@@ -33,6 +34,7 @@ export const DEFAULT_WORKSPACE_ROOT = getDefaultWorkspaceRoot();
 
 const ALLOWED_CONFIG_KEYS = new Set([
   "publisherApiOrigin",
+  "publicSiteOrigin",
   "projectId",
   "dataset",
   "apiVersion",
@@ -216,6 +218,30 @@ function validateOrigin(value) {
   return origin;
 }
 
+function validatePublicSiteOrigin(value) {
+  const origin = requireTrimmedString(value, "publicSiteOrigin", 2048);
+  let parsed;
+  try {
+    parsed = new URL(origin);
+  } catch (error) {
+    throw configError("INVALID_CONFIG", "publicSiteOrigin must be a bare HTTPS origin.", error);
+  }
+
+  if (
+    parsed.protocol !== "https:" ||
+    parsed.username !== "" ||
+    parsed.password !== "" ||
+    parsed.pathname !== "/" ||
+    parsed.search !== "" ||
+    parsed.hash !== "" ||
+    parsed.origin !== origin
+  ) {
+    throw configError("INVALID_CONFIG", "publicSiteOrigin must be a bare HTTPS origin.");
+  }
+
+  return origin;
+}
+
 function validateApiVersion(value) {
   const apiVersion = requireTrimmedString(value, "apiVersion", 10);
   if (!/^\d{4}-\d{2}-\d{2}$/u.test(apiVersion)) {
@@ -272,6 +298,7 @@ export function validateConfigObject(input, { homeDir = os.homedir() } = {}) {
   }
 
   let publisherApiOrigin = DEFAULT_PUBLISHER_API_ORIGIN;
+  let publicSiteOrigin = DEFAULT_PUBLIC_SITE_ORIGIN;
   let apiVersion = DEFAULT_SANITY_API_VERSION;
   let workspaceRoot = getDefaultWorkspaceRoot(homeDir);
 
@@ -306,9 +333,13 @@ export function validateConfigObject(input, { homeDir = os.homedir() } = {}) {
       ? validateWorkspaceRoot(input.workspaceRoot)
       : LEGACY_DEFAULT_WORKSPACE_ROOT;
   }
+  if (hasOwn(input, "publicSiteOrigin")) {
+    publicSiteOrigin = validatePublicSiteOrigin(input.publicSiteOrigin);
+  }
 
   const config = {
     publisherApiOrigin,
+    publicSiteOrigin,
     projectId,
     dataset,
     apiVersion,
@@ -539,6 +570,23 @@ export async function checkConfig(options = {}) {
   };
 }
 
+export async function checkContentConfig(options = {}) {
+  const config = await loadConfig(options);
+  const { configPath } = getConfigPaths(options.homeDir ?? os.homedir());
+  return {
+    configured: true,
+    publisherApiOrigin: config.publisherApiOrigin,
+    target: {
+      projectId: config.projectId,
+      dataset: config.dataset,
+      apiVersion: config.apiVersion,
+    },
+    workspaceRoot: config.workspaceRoot,
+    configPath,
+    publicSiteOrigin: config.publicSiteOrigin,
+  };
+}
+
 async function ensurePrivateDirectory(directoryPath, permissions) {
   try {
     await mkdir(directoryPath, { mode: 0o700 });
@@ -646,12 +694,18 @@ export async function initializeConfig(
     const persisted = managedConfiguration
       ? {
           publisherApiOrigin: config.publisherApiOrigin,
+          ...(hasOwn(input, "publicSiteOrigin")
+            ? { publicSiteOrigin: config.publicSiteOrigin }
+            : {}),
           projectId: config.projectId,
           dataset: config.dataset,
           sanityToken: config.sanityToken,
         }
       : {
           publisherApiOrigin: config.publisherApiOrigin,
+          ...(hasOwn(input, "publicSiteOrigin")
+            ? { publicSiteOrigin: config.publicSiteOrigin }
+            : {}),
           projectId: config.projectId,
           dataset: config.dataset,
           apiVersion: config.apiVersion,

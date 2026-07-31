@@ -5,8 +5,15 @@ import path from 'node:path'
 import {fileURLToPath} from 'node:url'
 import {createInterface} from 'node:readline/promises'
 
-import {checkConfig, initializeConfig} from './config.mjs'
-import {DEFAULT_PUBLISHER_API_ORIGIN} from './constants.mjs'
+import {
+  checkConfig,
+  checkContentConfig,
+  initializeConfig,
+} from './config.mjs'
+import {
+  DEFAULT_PUBLIC_SITE_ORIGIN,
+  DEFAULT_PUBLISHER_API_ORIGIN,
+} from './constants.mjs'
 import {SafeError, toSafeErrorResult} from './errors.mjs'
 
 function asCliSafeError(error) {
@@ -66,7 +73,7 @@ async function askHidden(label) {
   }
 }
 
-async function collectConfiguration() {
+async function collectConfiguration({includePublicSiteOrigin = false} = {}) {
   if (!process.stdin.isTTY) {
     const projectId = process.env.SANITY_BLOG_PROJECT_ID?.trim()
     const sanityToken = process.env.SANITY_BLOG_TOKEN?.trim()
@@ -80,6 +87,13 @@ async function collectConfiguration() {
       publisherApiOrigin:
         process.env.SANITY_BLOG_PUBLISHER_API_ORIGIN?.trim() ||
         DEFAULT_PUBLISHER_API_ORIGIN,
+      ...(includePublicSiteOrigin
+        ? {
+            publicSiteOrigin:
+              process.env.SANITY_BLOG_PUBLIC_SITE_ORIGIN?.trim() ||
+              DEFAULT_PUBLIC_SITE_ORIGIN,
+          }
+        : {}),
       projectId,
       dataset: process.env.SANITY_BLOG_DATASET?.trim() || 'production',
       sanityToken,
@@ -92,6 +106,7 @@ async function collectConfiguration() {
     terminal: true,
   })
   let publisherApiOrigin
+  let publicSiteOrigin
   let projectId
   let dataset
   try {
@@ -100,6 +115,13 @@ async function collectConfiguration() {
       'Publisher API origin (HTTPS)',
       process.env.SANITY_BLOG_PUBLISHER_API_ORIGIN ?? DEFAULT_PUBLISHER_API_ORIGIN,
     )
+    if (includePublicSiteOrigin) {
+      publicSiteOrigin = await askVisible(
+        readline,
+        'Public site origin for canonical URLs (HTTPS)',
+        process.env.SANITY_BLOG_PUBLIC_SITE_ORIGIN ?? DEFAULT_PUBLIC_SITE_ORIGIN,
+      )
+    }
     projectId = await askVisible(
       readline,
       'Sanity project ID',
@@ -114,14 +136,23 @@ async function collectConfiguration() {
     readline.close()
   }
   const sanityToken = process.env.SANITY_BLOG_TOKEN ?? (await askHidden('Sanity token (hidden)'))
-  return {publisherApiOrigin, projectId, dataset, sanityToken}
+  return {
+    publisherApiOrigin,
+    ...(includePublicSiteOrigin ? {publicSiteOrigin} : {}),
+    projectId,
+    dataset,
+    sanityToken,
+  }
 }
 
 export async function runCli(args = process.argv.slice(2)) {
-  if (args.length !== 1 || !['--init', '--check', '--help'].includes(args[0])) {
+  if (
+    args.length !== 1 ||
+    !['--init', '--init-content', '--check', '--help'].includes(args[0])
+  ) {
     throw configurationInputError(
       'INVALID_CLI_ARGUMENTS',
-      'Use exactly one of --init, --check, or --help.',
+      'Use exactly one of --init, --init-content, --check, or --help.',
     )
   }
   if (args[0] === '--help') {
@@ -129,6 +160,7 @@ export async function runCli(args = process.argv.slice(2)) {
       ok: true,
       usage: [
         'node dist/cli.mjs --init',
+        'node dist/cli.mjs --init-content',
         'node dist/cli.mjs --check',
       ],
     }
@@ -136,8 +168,14 @@ export async function runCli(args = process.argv.slice(2)) {
   if (args[0] === '--check') {
     return {ok: true, ...(await checkConfig())}
   }
-  const configuration = await collectConfiguration()
-  return {ok: true, ...(await initializeConfig(configuration))}
+  const configuration = await collectConfiguration({
+    includePublicSiteOrigin: args[0] === '--init-content',
+  })
+  const initialized = await initializeConfig(configuration)
+  if (args[0] === '--init-content') {
+    return {ok: true, ...(await checkContentConfig())}
+  }
+  return {ok: true, ...initialized}
 }
 
 async function main() {

@@ -1,8 +1,8 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
   "name": "sanityblog",
-  "version": "0.1.0",
-  "description": "Safely draft, visually preview, publish, and update blog content through a local stdio MCP server.",
+  "version": "0.2.0",
+  "description": "Safely preview, publish, and update seven Sanity content types through 21 explicit skills and a local stdio MCP server.",
   "author": {
     "name": "Local developer"
   },

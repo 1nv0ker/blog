@@ -1,0 +1,6 @@
+interface:
+  display_name: "Sanity Solution Update"
+  short_description: "Update bilingual solution content safely"
+  default_prompt: "Use $sanity-content-solution-update to update one bilingual solution document safely."
+policy:
+  allow_implicit_invocation: false

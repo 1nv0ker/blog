@@ -1,11 +1,11 @@
 ---
 name: sanity-blog-publish
-description: Research, draft, validate, probe, and publish a bilingual English and Chinese blog article with a compliant PNG cover through the bundled sanityblog MCP server. Use only when the user explicitly asks to publish a blog post and accepts a remote write; do not use for read-only review, configuration-only work, or a request that is strictly an update.
+description: Research, draft, validate, probe, and publish one legacy blog-post document with bilingual English and Chinese content and a compliant PNG cover through the bundled sanityblog MCP server. Use only when the user explicitly asks to publish a blog-post and accepts a remote write; do not use for blog-en, another rich content type, read-only review, configuration-only work, or a request that is strictly an update.
 ---
 
 # Sanity Blog Publish
 
-Publish one fully researched, bilingual article through the bundled local MCP server. Treat the final publish call as an external write. Keep the staged files and safe receipt as the source of truth for the attempt.
+Publish one fully researched, bilingual legacy `blog-post` through the bundled local MCP server. Treat the final publish call as an external write. Keep the staged files and safe receipt as the source of truth for the attempt.
 
 ## Required MCP tools
 

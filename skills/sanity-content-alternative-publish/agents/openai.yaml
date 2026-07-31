@@ -1,0 +1,6 @@
+interface:
+  display_name: "Sanity Alternative Publish"
+  short_description: "Publish bilingual alternative content safely"
+  default_prompt: "Use $sanity-content-alternative-publish to publish one bilingual alternative document safely."
+policy:
+  allow_implicit_invocation: false

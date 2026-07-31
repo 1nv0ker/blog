@@ -1,6 +1,7 @@
 # sanityblog
 
-`sanityblog` 是一个本地 stdio MCP 插件，提供文章预览、发布和更新三个显式技能。
+`sanityblog` 是一个本地 stdio MCP 插件，为旧 `blogPost` 和发布器 API 1.1
+富内容提供相互隔离的预览、发布和更新技能。
 
 源码仓库：[1nv0ker/blog](https://github.com/1nv0ker/blog)
 
@@ -61,6 +62,15 @@ node src/cli.mjs --init
 
 配置保存在 `~/.sanity-blog/config.json`。`apiVersion` 固定为 `2026-07-05`，本地工作区自动创建在 `~/.sanity-blog/workspace`。
 
+六类富内容还使用非敏感的 `publicSiteOrigin` 校验 canonical URL，默认
+`https://miyaip.com`。现有四字段配置会自动使用该默认值，无需迁移。需要修改时运行：
+
+```bash
+node src/cli.mjs --init-content
+```
+
+该模式会额外询问 `publicSiteOrigin`。旧 `--init` 流程和旧 blog 工具的配置输出保持不变。
+
 检查配置：
 
 ```powershell
@@ -78,10 +88,26 @@ node src/cli.mjs --check
 
 ## 技能概览
 
-| 技能 | 用途 |
-| --- | --- |
-| `sanity-blog-preview` | 生成双语 Markdown、严格文章 JSON 和 PNG 封面，并输出本地 HTML 可视化预览；不探测或写入发布服务 |
-| `sanity-blog-publish` | 创建并发布新文章；先校验和预览，用户接受后 dry-run，最终确认后才写入远端 |
-| `sanity-blog-update` | 更新明确存在的文章；保持 PUT-only，不会在文章缺失时改为创建 |
+插件公开 7 类 × 3 操作共 21 个类型专属技能。旧 `blog-post` 保留原名称；
+其余六类统一使用 `sanity-content-<type>-<operation>`：
 
-发布和更新都会用 `previewRevision` 绑定用户接受的 JSON、Markdown 和封面快照。文件变化后必须重新预览；最终远端写入始终需要用户明确确认。
+| 类型 | 本地预览 | 远端发布 | 严格更新 |
+| --- | --- | --- | --- |
+| `blog-post` | `sanity-blog-preview` | `sanity-blog-publish` | `sanity-blog-update` |
+| `blog-en` | `sanity-content-blog-en-preview` | `sanity-content-blog-en-publish` | `sanity-content-blog-en-update` |
+| `guide` | `sanity-content-guide-preview` | `sanity-content-guide-publish` | `sanity-content-guide-update` |
+| `comparison` | `sanity-content-comparison-preview` | `sanity-content-comparison-publish` | `sanity-content-comparison-update` |
+| `solution` | `sanity-content-solution-preview` | `sanity-content-solution-publish` | `sanity-content-solution-update` |
+| `alternative` | `sanity-content-alternative-preview` | `sanity-content-alternative-publish` | `sanity-content-alternative-update` |
+| `tutorial` | `sanity-content-tutorial-preview` | `sanity-content-tutorial-publish` | `sanity-content-tutorial-update` |
+
+预览只处理本地 bundle，不探测或写入发布服务。发布先校验和预览，再
+dry-run，并仅在最终确认后写入远端。更新保持 PUT-only，文档缺失时绝不创建。
+
+发布和更新都会用 `previewRevision` 绑定用户接受的 JSON、Markdown 和所有本地
+asset 字节。文件变化后必须重新预览；最终远端写入始终需要用户明确确认。
+
+旧 blog bundle 继续位于 `workspace/blog`。新富内容按类型与 slug 隔离在
+`workspace/contents/<type>/<slug>/`，其中包含同名 Markdown、JSON 和 `assets/`
+目录；不同内容类型可以安全使用相同 slug。新发布记录写入
+`~/.sanity-blog/published/contents/<type>/<slug>.json`，不会覆盖旧 blog 收据。

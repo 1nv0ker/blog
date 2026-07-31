@@ -1,10 +1,38 @@
 import assert from 'node:assert/strict'
-import {readFile} from 'node:fs/promises'
+import {execFile} from 'node:child_process'
+import {readdir, readFile} from 'node:fs/promises'
 import path from 'node:path'
+import {promisify} from 'node:util'
 import {fileURLToPath} from 'node:url'
 import test from 'node:test'
 
 const pluginRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
+const execFileAsync = promisify(execFile)
+const richContentTypes = [
+  'blog-en',
+  'guide',
+  'comparison',
+  'solution',
+  'alternative',
+  'tutorial',
+]
+const contentOperations = ['preview', 'publish', 'update']
+const legacySkillNames = [
+  'sanity-blog-preview',
+  'sanity-blog-publish',
+  'sanity-blog-update',
+]
+const richContentSkillNames = richContentTypes.flatMap((contentType) =>
+  contentOperations.map(
+    (operation) => `sanity-content-${contentType}-${operation}`,
+  ),
+)
+const expectedSkillNames = [...legacySkillNames, ...richContentSkillNames].sort()
+const removedGenericSkillNames = [
+  'sanity-content-preview',
+  'sanity-content-publish',
+  'sanity-content-update',
+]
 
 async function text(relativePath) {
   return readFile(path.join(pluginRoot, relativePath), 'utf8')
@@ -25,8 +53,9 @@ test('package and dual plugin manifests expose pinned compatible metadata', asyn
   assert.equal(packageJson.dependencies['@modelcontextprotocol/sdk'], '1.29.0')
   assert.equal(packageJson.dependencies.zod, '3.25.76')
   assert.equal(packageJson.devDependencies.esbuild, '0.25.12')
-  assert.match(codex.version, /^0\.1\.0\+codex\.[0-9A-Za-z.-]+$/u)
-  assert.equal(claude.version, '0.1.0')
+  assert.equal(packageJson.version, '0.2.0')
+  assert.match(codex.version, /^0\.2\.0\+codex\.[0-9A-Za-z.-]+$/u)
+  assert.equal(claude.version, '0.2.0')
   for (const manifest of [codex, claude]) {
     assert.equal(manifest.name, 'sanityblog')
     assert.equal(manifest.author.name, 'Local developer')
@@ -159,6 +188,198 @@ test('preview skill creates, validates, renders, and optionally keeps a local bu
   assert.doesNotMatch(workflow, /sanity_blog_(?:publish|update)\(/u)
 })
 
+test('skills inventory contains exactly seven types with three dedicated workflows', async () => {
+  const entries = await readdir(path.join(pluginRoot, 'skills'), {
+    withFileTypes: true,
+  })
+  const actualSkillNames = entries
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => entry.name)
+    .sort()
+
+  assert.deepEqual(actualSkillNames, expectedSkillNames)
+  for (const removedName of removedGenericSkillNames) {
+    assert.equal(
+      actualSkillNames.includes(removedName),
+      false,
+      `${removedName} must not remain as a generic alias`,
+    )
+  }
+})
+
+test('dedicated rich-content skills pin one type and enforce operation-specific workflows', async (t) => {
+  const operationContracts = {
+    preview: {
+      order: [
+        'sanity_content_check_config',
+        'sanity_content_prepare_publish',
+        'sanity_content_validate',
+        'sanity_content_preview',
+        'sanity_content_commit',
+      ],
+      requiredCalls: [
+        'sanity_content_prepare_publish',
+        'sanity_content_validate',
+        'sanity_content_preview',
+        'sanity_content_commit',
+        'sanity_content_release',
+      ],
+      forbiddenCalls:
+        /sanity_content_(?:probe_publish|probe_update|publish|update)\(/u,
+    },
+    publish: {
+      order: [
+        'sanity_content_check_config',
+        'sanity_content_prepare_publish',
+        'sanity_content_validate',
+        'sanity_content_preview',
+        'sanity_content_probe_publish',
+        'sanity_content_commit',
+        'sanity_content_publish',
+      ],
+      requiredCalls: [
+        'sanity_content_prepare_publish',
+        'sanity_content_validate',
+        'sanity_content_preview',
+        'sanity_content_probe_publish',
+        'sanity_content_commit',
+        'sanity_content_release',
+        'sanity_content_publish',
+      ],
+      forbiddenCalls: /sanity_content_(?:probe_update|update)\(/u,
+    },
+    update: {
+      order: [
+        'sanity_content_check_config',
+        'sanity_content_prepare_update',
+        'sanity_content_validate',
+        'sanity_content_preview',
+        'sanity_content_probe_update',
+        'sanity_content_commit',
+        'sanity_content_update',
+      ],
+      requiredCalls: [
+        'sanity_content_prepare_update',
+        'sanity_content_validate',
+        'sanity_content_preview',
+        'sanity_content_probe_update',
+        'sanity_content_commit',
+        'sanity_content_release',
+        'sanity_content_update',
+      ],
+      forbiddenCalls: /sanity_content_(?:probe_publish|publish)\(/u,
+    },
+  }
+
+  for (const contentType of richContentTypes) {
+    for (const operation of contentOperations) {
+      const skillName = `sanity-content-${contentType}-${operation}`
+      await t.test(skillName, async () => {
+        const [skill, agent] = await Promise.all([
+          text(`skills/${skillName}/SKILL.md`),
+          text(`skills/${skillName}/agents/openai.yaml`),
+        ])
+        const contract = operationContracts[operation]
+
+        assert.match(
+          skill,
+          new RegExp(`^---\\r?\\nname:\\s*${skillName}\\r?\\n`, 'u'),
+        )
+        assert.match(skill, /\ndescription:\s*[^\r\n]+\r?\n/u)
+        assert.doesNotMatch(skill, /\[?TODO(?::|\])/u)
+        assert.match(agent, /display_name:\s*["'][^"'\r\n]+["']/u)
+        assert.match(agent, /short_description:\s*["'][^"'\r\n]+["']/u)
+        assert.match(
+          agent,
+          new RegExp(`default_prompt:.*\\$${skillName}\\b`, 'u'),
+        )
+        assert.match(agent, /allow_implicit_invocation:\s*false/u)
+
+        const literalTypes = [
+          ...skill.matchAll(/contentType:\s*["']([^"']+)["']/gu),
+        ].map((match) => match[1])
+        assert.ok(
+          literalTypes.length >= contract.requiredCalls.length,
+          `${skillName} must pin contentType in every content tool signature`,
+        )
+        assert.deepEqual([...new Set(literalTypes)], [contentType])
+        assert.doesNotMatch(skill, /\{contentType(?:[,}])/u)
+
+        for (const toolName of contract.requiredCalls) {
+          assert.match(
+            skill,
+            new RegExp(
+              `${toolName}\\(\\{[^}\\r\\n]*contentType:\\s*["']${contentType}["'][^}\\r\\n]*\\}\\)`,
+              'u',
+            ),
+          )
+        }
+
+        assert.match(skill, /previewRevision/u)
+        assert.match(skill, /assetsDirectory/u)
+        assert.doesNotMatch(skill, /sanity_blog_[a-z_]+\(/u)
+        assert.doesNotMatch(skill, /\b(?:fetch|curl|Invoke-WebRequest)\s*\(/u)
+
+        const workflowStart = skill.indexOf('## Workflow')
+        assert.notEqual(workflowStart, -1)
+        const workflow = skill.slice(workflowStart)
+        const positions = contract.order.map((toolName) =>
+          workflow.indexOf(toolName),
+        )
+        assert.ok(positions.every((position) => position >= 0))
+        assert.deepEqual(
+          [...positions].sort((left, right) => left - right),
+          positions,
+        )
+        assert.doesNotMatch(workflow, contract.forbiddenCalls)
+
+        if (operation === 'preview') {
+          assert.match(skill, /no publisher API (?:request|probe)/iu)
+        } else if (operation === 'publish') {
+          assert.match(skill, /explicit confirmation/iu)
+          assert.match(skill, /Never retry/iu)
+          assert.match(skill, /partial success/iu)
+        } else {
+          assert.match(skill, /PUT-only/u)
+          assert.match(
+            skill,
+            /omission (?:preserves|keeps) (?:the|an) [^\r\n.]*value/iu,
+          )
+          assert.match(
+            skill,
+            /(?:explicit(?: supported)?|supported) `null` clears/iu,
+          )
+          assert.match(skill, /never creates/iu)
+        }
+
+        if (contentType === 'blog-en') {
+          assert.match(skill, /complete(?: API 1\.1)? SEO/iu)
+          assert.match(skill, /canonical(?: HTTPS)? URLs?/iu)
+          assert.match(skill, /publicSiteOrigin/u)
+        } else {
+          assert.doesNotMatch(
+            skill,
+            /(?:requires?|must have|retain valid)[^\r\n.]*canonical/iu,
+          )
+        }
+      })
+    }
+  }
+})
+
+test('dedicated content skill generator is deterministic and current', async () => {
+  const generatorPath = path.join(
+    pluginRoot,
+    'scripts',
+    'generate-content-skills.mjs',
+  )
+  const result = await execFileAsync(process.execPath, [generatorPath, '--check'], {
+    cwd: pluginRoot,
+    windowsHide: true,
+  })
+  assert.equal(result.stderr, '')
+})
+
 test('one-click installer and minimal configuration are packaged', async () => {
   const installer = await text('install.ps1')
   const configureInstall = await text('scripts/configure-install.mjs')
@@ -167,6 +388,7 @@ test('one-click installer and minimal configuration are packaged', async () => {
 
   assert.deepEqual(Object.keys(example), [
     'publisherApiOrigin',
+    'publicSiteOrigin',
     'projectId',
     'dataset',
     'sanityToken',

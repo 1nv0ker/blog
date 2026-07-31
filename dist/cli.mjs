@@ -26,6 +26,7 @@ import { execFile } from "node:child_process";
 // src/constants.mjs
 var DEFAULT_PUBLISHER_API_ORIGIN = "https://publish.miyaip.com";
 var DEFAULT_SANITY_API_VERSION = "2026-07-05";
+var DEFAULT_PUBLIC_SITE_ORIGIN = "https://miyaip.com";
 
 // src/errors.mjs
 var DEFAULT_CATEGORY = "internal";
@@ -75,11 +76,17 @@ function sanitizeCommitReceipt(value) {
     return void 0;
   }
   const receipt = { committed: true };
-  for (const key of ["slug", "reservationId", "mode"]) {
+  for (const key of ["contentType", "slug", "reservationId", "mode"]) {
     const cleaned = cleanOptionalString(value[key]);
     if (cleaned !== void 0) receipt[key] = cleaned;
   }
-  for (const key of ["markdownPath", "articlePath", "coverPath"]) {
+  for (const key of [
+    "bundlePath",
+    "markdownPath",
+    "articlePath",
+    "assetsDirectory",
+    "coverPath"
+  ]) {
     const cleaned = cleanOptionalString(value[key], 4096);
     if (cleaned !== void 0) receipt[key] = cleaned;
   }
@@ -90,7 +97,15 @@ function sanitizeReceipt(value) {
     return void 0;
   }
   const receipt = {};
-  for (const key of ["status", "id", "revision", "slug", "requestId", "operation"]) {
+  for (const key of [
+    "status",
+    "id",
+    "revision",
+    "slug",
+    "contentType",
+    "requestId",
+    "operation"
+  ]) {
     const cleaned = cleanOptionalString(value[key]);
     if (cleaned) {
       receipt[key] = cleaned;
@@ -212,6 +227,7 @@ function getDefaultWorkspaceRoot(homeDir = os.homedir()) {
 var DEFAULT_WORKSPACE_ROOT = getDefaultWorkspaceRoot();
 var ALLOWED_CONFIG_KEYS = /* @__PURE__ */ new Set([
   "publisherApiOrigin",
+  "publicSiteOrigin",
   "projectId",
   "dataset",
   "apiVersion",
@@ -374,6 +390,19 @@ function validateOrigin(value) {
   }
   return origin;
 }
+function validatePublicSiteOrigin(value) {
+  const origin = requireTrimmedString(value, "publicSiteOrigin", 2048);
+  let parsed;
+  try {
+    parsed = new URL(origin);
+  } catch (error) {
+    throw configError("INVALID_CONFIG", "publicSiteOrigin must be a bare HTTPS origin.", error);
+  }
+  if (parsed.protocol !== "https:" || parsed.username !== "" || parsed.password !== "" || parsed.pathname !== "/" || parsed.search !== "" || parsed.hash !== "" || parsed.origin !== origin) {
+    throw configError("INVALID_CONFIG", "publicSiteOrigin must be a bare HTTPS origin.");
+  }
+  return origin;
+}
 function validateApiVersion(value) {
   const apiVersion = requireTrimmedString(value, "apiVersion", 10);
   if (!/^\d{4}-\d{2}-\d{2}$/u.test(apiVersion)) {
@@ -421,6 +450,7 @@ function validateConfigObject(input, { homeDir = os.homedir() } = {}) {
     throw configError("INVALID_CONFIG", "dataset contains unsupported characters.");
   }
   let publisherApiOrigin = DEFAULT_PUBLISHER_API_ORIGIN;
+  let publicSiteOrigin = DEFAULT_PUBLIC_SITE_ORIGIN;
   let apiVersion = DEFAULT_SANITY_API_VERSION;
   let workspaceRoot = getDefaultWorkspaceRoot(homeDir);
   if (usesManagedDefaults(input)) {
@@ -452,8 +482,12 @@ function validateConfigObject(input, { homeDir = os.homedir() } = {}) {
     }
     workspaceRoot = hasOwn(input, "workspaceRoot") ? validateWorkspaceRoot(input.workspaceRoot) : LEGACY_DEFAULT_WORKSPACE_ROOT;
   }
+  if (hasOwn(input, "publicSiteOrigin")) {
+    publicSiteOrigin = validatePublicSiteOrigin(input.publicSiteOrigin);
+  }
   const config = {
     publisherApiOrigin,
+    publicSiteOrigin,
     projectId,
     dataset,
     apiVersion,
@@ -655,6 +689,22 @@ async function checkConfig(options = {}) {
     configPath
   };
 }
+async function checkContentConfig(options = {}) {
+  const config = await loadConfig(options);
+  const { configPath } = getConfigPaths(options.homeDir ?? os.homedir());
+  return {
+    configured: true,
+    publisherApiOrigin: config.publisherApiOrigin,
+    target: {
+      projectId: config.projectId,
+      dataset: config.dataset,
+      apiVersion: config.apiVersion
+    },
+    workspaceRoot: config.workspaceRoot,
+    configPath,
+    publicSiteOrigin: config.publicSiteOrigin
+  };
+}
 async function ensurePrivateDirectory(directoryPath, permissions) {
   try {
     await mkdir(directoryPath, { mode: 448 });
@@ -752,11 +802,13 @@ async function initializeConfig(input, {
     }
     const persisted = managedConfiguration ? {
       publisherApiOrigin: config.publisherApiOrigin,
+      ...hasOwn(input, "publicSiteOrigin") ? { publicSiteOrigin: config.publicSiteOrigin } : {},
       projectId: config.projectId,
       dataset: config.dataset,
       sanityToken: config.sanityToken
     } : {
       publisherApiOrigin: config.publisherApiOrigin,
+      ...hasOwn(input, "publicSiteOrigin") ? { publicSiteOrigin: config.publicSiteOrigin } : {},
       projectId: config.projectId,
       dataset: config.dataset,
       apiVersion: config.apiVersion,
@@ -833,7 +885,7 @@ async function askHidden(label) {
     process.stderr.write("\n");
   }
 }
-async function collectConfiguration() {
+async function collectConfiguration({ includePublicSiteOrigin = false } = {}) {
   if (!process.stdin.isTTY) {
     const projectId2 = process.env.SANITY_BLOG_PROJECT_ID?.trim();
     const sanityToken2 = process.env.SANITY_BLOG_TOKEN?.trim();
@@ -845,6 +897,9 @@ async function collectConfiguration() {
     }
     return {
       publisherApiOrigin: process.env.SANITY_BLOG_PUBLISHER_API_ORIGIN?.trim() || DEFAULT_PUBLISHER_API_ORIGIN,
+      ...includePublicSiteOrigin ? {
+        publicSiteOrigin: process.env.SANITY_BLOG_PUBLIC_SITE_ORIGIN?.trim() || DEFAULT_PUBLIC_SITE_ORIGIN
+      } : {},
       projectId: projectId2,
       dataset: process.env.SANITY_BLOG_DATASET?.trim() || "production",
       sanityToken: sanityToken2
@@ -856,6 +911,7 @@ async function collectConfiguration() {
     terminal: true
   });
   let publisherApiOrigin;
+  let publicSiteOrigin;
   let projectId;
   let dataset;
   try {
@@ -864,6 +920,13 @@ async function collectConfiguration() {
       "Publisher API origin (HTTPS)",
       process.env.SANITY_BLOG_PUBLISHER_API_ORIGIN ?? DEFAULT_PUBLISHER_API_ORIGIN
     );
+    if (includePublicSiteOrigin) {
+      publicSiteOrigin = await askVisible(
+        readline,
+        "Public site origin for canonical URLs (HTTPS)",
+        process.env.SANITY_BLOG_PUBLIC_SITE_ORIGIN ?? DEFAULT_PUBLIC_SITE_ORIGIN
+      );
+    }
     projectId = await askVisible(
       readline,
       "Sanity project ID",
@@ -878,13 +941,19 @@ async function collectConfiguration() {
     readline.close();
   }
   const sanityToken = process.env.SANITY_BLOG_TOKEN ?? await askHidden("Sanity token (hidden)");
-  return { publisherApiOrigin, projectId, dataset, sanityToken };
+  return {
+    publisherApiOrigin,
+    ...includePublicSiteOrigin ? { publicSiteOrigin } : {},
+    projectId,
+    dataset,
+    sanityToken
+  };
 }
 async function runCli(args = process.argv.slice(2)) {
-  if (args.length !== 1 || !["--init", "--check", "--help"].includes(args[0])) {
+  if (args.length !== 1 || !["--init", "--init-content", "--check", "--help"].includes(args[0])) {
     throw configurationInputError(
       "INVALID_CLI_ARGUMENTS",
-      "Use exactly one of --init, --check, or --help."
+      "Use exactly one of --init, --init-content, --check, or --help."
     );
   }
   if (args[0] === "--help") {
@@ -892,6 +961,7 @@ async function runCli(args = process.argv.slice(2)) {
       ok: true,
       usage: [
         "node dist/cli.mjs --init",
+        "node dist/cli.mjs --init-content",
         "node dist/cli.mjs --check"
       ]
     };
@@ -899,8 +969,14 @@ async function runCli(args = process.argv.slice(2)) {
   if (args[0] === "--check") {
     return { ok: true, ...await checkConfig() };
   }
-  const configuration = await collectConfiguration();
-  return { ok: true, ...await initializeConfig(configuration) };
+  const configuration = await collectConfiguration({
+    includePublicSiteOrigin: args[0] === "--init-content"
+  });
+  const initialized = await initializeConfig(configuration);
+  if (args[0] === "--init-content") {
+    return { ok: true, ...await checkContentConfig() };
+  }
+  return { ok: true, ...initialized };
 }
 async function main() {
   try {

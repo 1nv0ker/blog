@@ -1,11 +1,11 @@
 ---
 name: sanity-blog-preview
-description: Research, draft, validate, and visually preview a bilingual English and Chinese Sanity blog article by generating the canonical Markdown, strict article JSON, and PNG cover bundle through the bundled sanityblog MCP server. Use when the user explicitly asks to draft, stage, review, or preview a post without probing or writing to the publisher API; do not use for a final publish or remote update.
+description: Research, draft, validate, and visually preview one legacy blog-post document by generating its bilingual English and Chinese Markdown, strict article JSON, and PNG cover bundle through the bundled sanityblog MCP server. Use when the user explicitly asks to draft, stage, review, or preview a blog-post without probing or writing to the publisher API; do not use for blog-en, another rich content type, a final publish, or a remote update.
 ---
 
 # Sanity Blog Preview
 
-Generate a complete local article bundle, render both the validated JSON payload and its sibling Markdown as a safe HTML preview, and let the user iterate before deciding whether to keep the bundle in the canonical local article structure. This workflow never probes or writes to the publisher API. Research or image-generation capabilities may use their normal external services when the user allows them; they are separate from the publisher API boundary.
+Generate a complete local legacy `blog-post` bundle, render both the validated JSON payload and its sibling Markdown as a safe HTML preview, and let the user iterate before deciding whether to keep the bundle in the canonical local article structure. This workflow never probes or writes to the publisher API. Research or image-generation capabilities may use their normal external services when the user allows them; they are separate from the publisher API boundary.
 
 ## Required MCP tools
 
