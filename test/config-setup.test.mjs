@@ -139,6 +139,33 @@ test('non-Windows setup returns an interactive manual command without spawning',
   assert.equal(execCount, 0)
 })
 
+test('macOS setup returns the installed portable runtime command without spawning', async () => {
+  let execCount = 0
+  const launcher = createConfigurationSetupLauncher({
+    platform: 'darwin',
+    execPath: '/Users/current-user/plugins/sanityblog/runtime/bin/node',
+    cliPath: '/Users/current-user/plugins/sanityblog/dist/cli.mjs',
+    homeDir: '/Users/current-user',
+    execFileImpl() {
+      execCount += 1
+    },
+  })
+
+  assert.deepEqual(await launcher.start(), {
+    setupStarted: false,
+    manualSetupRequired: true,
+    reason: 'INTERACTIVE_TERMINAL_REQUIRED',
+    manualCommand: {
+      command: '/Users/current-user/plugins/sanityblog/runtime/bin/node',
+      args: [
+        '/Users/current-user/plugins/sanityblog/dist/cli.mjs',
+        '--init',
+      ],
+    },
+  })
+  assert.equal(execCount, 0)
+})
+
 test('setup reports success only after the launcher exits successfully', async () => {
   let finishLaunch
   const launcher = createConfigurationSetupLauncher({

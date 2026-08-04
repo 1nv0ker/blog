@@ -382,6 +382,7 @@ test('dedicated content skill generator is deterministic and current', async () 
 
 test('one-click installer and minimal configuration are packaged', async () => {
   const installer = await text('install.ps1')
+  const macInstaller = await text('install.sh')
   const configureInstall = await text('scripts/configure-install.mjs')
   const bundledCli = await text('dist/cli.mjs')
   const example = await json('config.example.json')
@@ -406,7 +407,14 @@ test('one-click installer and minimal configuration are packaged', async () => {
   assert.match(configureInstall, /INSTALLED_BY_DEFAULT/u)
   assert.match(configureInstall, /ON_INSTALL/u)
   assert.match(configureInstall, /runtime["', ]+, "node\.exe"/u)
+  assert.match(configureInstall, /runtime["', ]+, "bin"[, ]+["']node/u)
   assert.doesNotMatch(installer, /--(?:sanity-)?token\b/iu)
+  assert.match(macInstaller, /NODE_VERSION="22\.23\.1"/u)
+  assert.match(macInstaller, /darwin-arm64/u)
+  assert.match(macInstaller, /darwin-x64/u)
+  assert.match(macInstaller, /--runtime-platform macos/u)
+  assert.match(macInstaller, /runtime\/bin\/node/u)
+  assert.doesNotMatch(macInstaller, /--(?:sanity-)?token\b/iu)
 })
 
 test('README stays concise and covers only installation, initialization, and skills', async () => {
@@ -416,6 +424,9 @@ test('README stays concise and covers only installation, initialization, and ski
     'codex plugin add sanityblog@sanityblog',
     '不需要预先安装 Git、Node.js 或 npm',
     'raw.githubusercontent.com/1nv0ker/blog/main/install.ps1',
+    'raw.githubusercontent.com/1nv0ker/blog/main/install.sh',
+    'Apple Silicon',
+    'runtime/bin/node',
     'Node.js 22.12',
     'npm install',
     'publisherApiOrigin',

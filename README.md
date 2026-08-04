@@ -24,9 +24,21 @@ codex plugin add sanityblog@sanityblog
 powershell -NoProfile -ExecutionPolicy Bypass -Command "irm 'https://raw.githubusercontent.com/1nv0ker/blog/main/install.ps1' | iex"
 ```
 
+### macOS 一键安装
+
+支持 Apple Silicon 和 Intel Mac。安装器同样自带经过 SHA-256 校验的便携
+Node.js，不需要预先安装 Git、Node.js 或 npm，也不需要 `sudo`：
+
+```bash
+/bin/bash -c 'set -o pipefail; curl --proto "=https" --proto-redir "=https" --tlsv1.2 -fsSL "https://raw.githubusercontent.com/1nv0ker/blog/main/install.sh" | /bin/bash'
+```
+
+安装器默认写入 `~/plugins/sanityblog`，自动初始化配置并注册个人
+Marketplace。更新时可重复运行同一命令；新版本激活失败会恢复旧安装。
+
 ### 从源码安装
 
-适用于 macOS、Linux，或需要本地开发的环境：
+适用于 Linux，或需要本地开发的环境：
 
 ```bash
 git clone https://github.com/1nv0ker/blog.git sanityblog
@@ -40,11 +52,18 @@ node src/cli.mjs --init
 
 ## 如何初始化配置
 
-Windows 一键安装会自动进入初始化。手动初始化或更换配置时：
+Windows 和 macOS 一键安装都会自动进入初始化。Windows 手动初始化或更换配置时：
 
 ```powershell
 $plugin = Join-Path $HOME 'plugins\sanityblog'
 & "$plugin\runtime\node.exe" "$plugin\dist\cli.mjs" --init
+```
+
+macOS 一键安装目录使用：
+
+```bash
+plugin="$HOME/plugins/sanityblog"
+"$plugin/runtime/bin/node" "$plugin/dist/cli.mjs" --init
 ```
 
 从源码运行时：
@@ -69,6 +88,13 @@ node src/cli.mjs --init
 node src/cli.mjs --init-content
 ```
 
+macOS 一键安装目录中对应命令为：
+
+```bash
+plugin="$HOME/plugins/sanityblog"
+"$plugin/runtime/bin/node" "$plugin/dist/cli.mjs" --init-content
+```
+
 该模式会额外询问 `publicSiteOrigin`。旧 `--init` 流程和旧 blog 工具的配置输出保持不变。
 
 检查配置：
@@ -76,6 +102,13 @@ node src/cli.mjs --init-content
 ```powershell
 $plugin = Join-Path $HOME 'plugins\sanityblog'
 & "$plugin\runtime\node.exe" "$plugin\dist\cli.mjs" --check
+```
+
+macOS 一键安装目录使用：
+
+```bash
+plugin="$HOME/plugins/sanityblog"
+"$plugin/runtime/bin/node" "$plugin/dist/cli.mjs" --check
 ```
 
 源码模式使用：

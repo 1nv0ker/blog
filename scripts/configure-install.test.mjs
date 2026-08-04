@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import { existsSync } from "node:fs";
 import {
   mkdir,
   mkdtemp,
@@ -57,8 +58,10 @@ async function temporaryHome(t) {
 async function sourceTreeFixture(t) {
   const root = path.join(await temporaryHome(t), "source");
   for (const relativePath of [
+    ".gitattributes",
     ".claude-plugin/plugin.json",
     ".codex-plugin/plugin.json",
+    "install.sh",
     "package.json",
     "package-lock.json",
     "src/server.mjs",
@@ -126,6 +129,21 @@ function assertSourceTree(sourceRoot) {
   );
 }
 
+function availableBash() {
+  if (process.platform !== "win32") {
+    return "/bin/bash";
+  }
+  for (const candidate of [
+    path.join(process.env.ProgramFiles ?? "", "Git", "bin", "bash.exe"),
+    path.join(process.env["ProgramFiles(x86)"] ?? "", "Git", "bin", "bash.exe"),
+  ]) {
+    if (existsSync(candidate)) {
+      return candidate;
+    }
+  }
+  return undefined;
+}
+
 test("generated MCP configurations always use the portable runtime", async (t) => {
   const home = await temporaryHome(t);
   const pluginRoot = path.join(home, "stage");
@@ -167,6 +185,123 @@ test("generated MCP configurations always use the portable runtime", async (t) =
       },
     },
   });
+});
+
+test("generated MCP configurations support the macOS portable runtime", async (t) => {
+  const home = await temporaryHome(t);
+  const pluginRoot = path.join(home, "stage");
+  const installRoot = path.join(home, "plugins", "sanityblog");
+  const manifestDirectory = path.join(pluginRoot, ".codex-plugin");
+  await mkdir(manifestDirectory, { recursive: true });
+  await writeFile(
+    path.join(manifestDirectory, "plugin.json"),
+    JSON.stringify({
+      name: "sanityblog",
+      version: "0.2.0",
+      skills: "./skills/",
+      interface: { displayName: "Sanity Blog & Content" },
+    }),
+    "utf8",
+  );
+
+  await writeMcpConfigurations({
+    pluginRoot,
+    installRoot,
+    runtimePlatform: "macos",
+  });
+
+  const manifest = JSON.parse(
+    await readFile(path.join(manifestDirectory, "plugin.json"), "utf8"),
+  );
+  assert.deepEqual(manifest.mcpServers, {
+    sanityblog: {
+      command: path.join(installRoot, "runtime", "bin", "node"),
+      args: [path.join(installRoot, "dist", "server.mjs")],
+    },
+  });
+  assert.equal(manifest.skills, "./skills/");
+  assert.deepEqual(manifest.interface, {
+    displayName: "Sanity Blog & Content",
+  });
+
+  const compatible = JSON.parse(
+    await readFile(path.join(pluginRoot, ".mcp.json"), "utf8"),
+  );
+  assert.deepEqual(compatible, {
+    mcpServers: {
+      sanityblog: {
+        command: "${CLAUDE_PLUGIN_ROOT}/runtime/bin/node",
+        args: ["${CLAUDE_PLUGIN_ROOT}/dist/server.mjs"],
+      },
+    },
+  });
+});
+
+test("generated MCP configurations reject unknown runtime platforms", async (t) => {
+  const home = await temporaryHome(t);
+  const pluginRoot = path.join(home, "stage");
+  const manifestDirectory = path.join(pluginRoot, ".codex-plugin");
+  await mkdir(manifestDirectory, { recursive: true });
+  await writeFile(
+    path.join(manifestDirectory, "plugin.json"),
+    JSON.stringify({ name: "sanityblog" }),
+    "utf8",
+  );
+
+  await assert.rejects(
+    writeMcpConfigurations({
+      pluginRoot,
+      installRoot: path.join(home, "plugins", "sanityblog"),
+      runtimePlatform: "../runtime/evil",
+    }),
+    /Unsupported runtime platform/u,
+  );
+  await assert.rejects(
+    readFile(path.join(pluginRoot, ".mcp.json"), "utf8"),
+    { code: "ENOENT" },
+  );
+});
+
+test("configure-install CLI selects the named macOS runtime", async (t) => {
+  const home = await temporaryHome(t);
+  const pluginRoot = path.join(home, "stage");
+  const installRoot = path.join(home, "plugins", "sanityblog");
+  const manifestDirectory = path.join(pluginRoot, ".codex-plugin");
+  await mkdir(manifestDirectory, { recursive: true });
+  await writeFile(
+    path.join(manifestDirectory, "plugin.json"),
+    JSON.stringify({ name: "sanityblog", skills: "./skills/" }),
+    "utf8",
+  );
+  const scriptPath = fileURLToPath(
+    new URL("./configure-install.mjs", import.meta.url),
+  );
+
+  const result = spawnSync(
+    process.execPath,
+    [
+      scriptPath,
+      "write-mcp",
+      "--plugin-root",
+      pluginRoot,
+      "--install-root",
+      installRoot,
+      "--runtime-platform",
+      "macos",
+    ],
+    { encoding: "utf8" },
+  );
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(JSON.parse(result.stdout).compatibleMcpPath, path.join(pluginRoot, ".mcp.json"));
+
+  const manifest = JSON.parse(
+    await readFile(path.join(manifestDirectory, "plugin.json"), "utf8"),
+  );
+  assert.equal(
+    manifest.mcpServers.sanityblog.command,
+    path.join(installRoot, "runtime", "bin", "node"),
+  );
+  assert.equal(manifest.skills, "./skills/");
 });
 
 test("marketplace merge preserves other plugins and is idempotent", async (t) => {
@@ -405,8 +540,10 @@ test("Windows installer pins downloads and never accepts a credential argument",
   assert.match(installer, /\[string\]\$InstallRoot/u);
   assert.match(installer, /\[switch\]\$SkipCodexRegistration/u);
   assert.match(installer, /function Assert-ExistingSanityBlogDirectory/u);
+  assert.match(installer, /"\.gitattributes"/u);
   assert.match(installer, /"\.claude-plugin\\plugin\.json"/u);
   assert.match(installer, /"\.codex-plugin\\plugin\.json"/u);
+  assert.match(installer, /"install\.sh"/u);
   assert.match(installer, /Source is missing required directory: skills/u);
   assert.match(installer, /Source contains forbidden generic skill directory/u);
   assert.match(
@@ -434,6 +571,104 @@ test("Windows installer pins downloads and never accepts a credential argument",
   assert.doesNotMatch(installer, /--(?:sanity-)?token\b/iu);
   assert.doesNotMatch(installer, /\[string\]\s*\$(?:sanity)?token\b/iu);
 });
+
+test("macOS installer pins both Node runtimes and exposes no credential flags", async () => {
+  const installerPath = fileURLToPath(new URL("../install.sh", import.meta.url));
+  const installer = await readFile(installerPath, "utf8");
+  const expectedBlock = installer.match(
+    /EXPECTED_SKILL_DIRECTORIES=\((?<body>[\s\S]*?)\r?\n\)/u,
+  );
+  assert.ok(expectedBlock?.groups?.body);
+  assert.deepEqual(
+    [...expectedBlock.groups.body.matchAll(/"([^"]+)"/gu)].map(
+      ([, skill]) => skill,
+    ),
+    EXPECTED_SKILLS,
+  );
+
+  assert.equal(installer.startsWith("#!/usr/bin/env bash\n"), true);
+  assert.equal(installer.includes("\r\n"), false);
+  assert.match(installer, /set -eo pipefail/u);
+  assert.match(installer, /umask 077/u);
+  assert.match(installer, /NODE_VERSION="22\.23\.1"/u);
+  assert.match(installer, /darwin-arm64/u);
+  assert.match(installer, /darwin-x64/u);
+  assert.match(
+    installer,
+    /ef28d8fab2c0e4314522d4bb1b7173270aa3937e93b92cb7de79c112ac1fa953/u,
+  );
+  assert.match(
+    installer,
+    /b8da981b8a0b1241b70249204916da76c63573ddf5814dbd2d1e41069105cb81/u,
+  );
+  assert.match(installer, /nodejs\.org\/download\/release/u);
+  assert.match(installer, /SHASUMS256\.txt/u);
+  assert.match(installer, /published_hash.*pinned_hash/su);
+  assert.match(installer, /downloaded_hash.*pinned_hash/su);
+  assert.match(installer, /--proto '=https'/u);
+  assert.match(installer, /--proto-redir '=https'/u);
+  assert.match(installer, /--tlsv1\.2/u);
+  assert.match(installer, /--omit=dev/u);
+  assert.match(installer, /--ignore-scripts/u);
+  assert.match(installer, /--no-audit/u);
+  assert.match(installer, /--no-fund/u);
+  assert.match(installer, /--runtime-platform macos/u);
+  assert.match(installer, /runtime\/bin\/node/u);
+  assert.match(installer, /lib\/node_modules\/npm\/bin\/npm-cli\.js/u);
+  assert.match(installer, /--source-path/u);
+  assert.match(installer, /--install-root/u);
+  assert.match(installer, /--skip-codex-registration/u);
+  assert.match(installer, /\/dev\/tty/u);
+  assert.match(installer, /\/dev\/null/u);
+  assert.match(installer, /SANITY_BLOG_PROJECT_ID/u);
+  assert.match(installer, /--help >\/dev\/null 2>&1/u);
+  assert.match(installer, /ROLLBACK_PERMITTED=0/u);
+  assert.match(
+    installer,
+    /CONFIG_NOT_FOUND.*INVALID_CONFIG.*LEGACY_CONFIG_REQUIRES_REINIT/su,
+  );
+  assert.match(installer, /merge-marketplace/u);
+  assert.match(installer, /codex plugin add/u);
+  assert.match(installer, /"install\.ps1"/u);
+  assert.match(installer, /"install\.sh"/u);
+  assert.match(installer, /"\.gitattributes"/u);
+  assert.match(installer, /Source contains forbidden generic skill directory/u);
+  assert.match(installer, /Source must contain exactly/u);
+  assert.match(installer, /unset SANITY_BLOG_TOKEN/u);
+
+  assert.doesNotMatch(installer, /\bgit\s+(?:clone|pull)\b/iu);
+  assert.doesNotMatch(installer, /\beval\b/iu);
+  assert.doesNotMatch(installer, /--(?:sanity-)?token\b/iu);
+  assert.doesNotMatch(installer, /readlink\s+-f/u);
+  assert.doesNotMatch(installer, /\brealpath\b/u);
+  assert.doesNotMatch(installer, /stat\s+-c/u);
+  assert.doesNotMatch(installer, /sed\s+-r/u);
+  assert.doesNotMatch(installer, /cp\s+-a/u);
+  assert.doesNotMatch(installer, /\bmapfile\b/u);
+  assert.doesNotMatch(installer, /declare\s+-A/u);
+});
+
+test("macOS installer is pinned to LF in Git checkouts", async () => {
+  const attributesPath = fileURLToPath(new URL("../.gitattributes", import.meta.url));
+  const attributes = await readFile(attributesPath, "utf8");
+  assert.match(attributes, /^install\.sh text eol=lf$/mu);
+});
+
+test(
+  "macOS installer parses with Bash",
+  async (t) => {
+    const bash = availableBash();
+    if (!bash) {
+      t.skip("Bash is unavailable on this test host.");
+      return;
+    }
+    const installerPath = fileURLToPath(new URL("../install.sh", import.meta.url));
+    const result = spawnSync(bash, ["-n", installerPath], {
+      encoding: "utf8",
+    });
+    assert.equal(result.status, 0, result.stderr);
+  },
+);
 
 test(
   "Windows installer parses without PowerShell syntax errors",

@@ -232,8 +232,10 @@ function Assert-SourceTree {
     )
 
     foreach ($requiredPath in @(
+        ".gitattributes",
         ".claude-plugin\plugin.json",
         ".codex-plugin\plugin.json",
+        "install.sh",
         "package.json",
         "package-lock.json",
         "src\server.mjs",

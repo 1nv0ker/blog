@@ -13,6 +13,16 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const PLUGIN_NAME = "sanityblog";
+const RUNTIME_PLATFORMS = Object.freeze({
+  windows: Object.freeze({
+    installedSegments: Object.freeze(["runtime", "node.exe"]),
+    portablePath: "runtime/node.exe",
+  }),
+  macos: Object.freeze({
+    installedSegments: Object.freeze(["runtime", "bin", "node"]),
+    portablePath: "runtime/bin/node",
+  }),
+});
 const RESERVED_PLUGIN_FIELDS = new Set([
   "name",
   "source",
@@ -149,12 +159,22 @@ async function writeCodexManifestMcp({ pluginRoot, mcpServers }) {
   return manifestPath;
 }
 
-export async function writeMcpConfigurations({ pluginRoot, installRoot }) {
+export async function writeMcpConfigurations({
+  pluginRoot,
+  installRoot,
+  runtimePlatform = "windows",
+}) {
   const absolutePluginRoot = path.resolve(pluginRoot);
   const absoluteInstallRoot = path.resolve(installRoot);
+  const runtime = RUNTIME_PLATFORMS[runtimePlatform];
+  if (!runtime) {
+    throw new Error(
+      `Unsupported runtime platform: ${String(runtimePlatform)}.`,
+    );
+  }
   const codexServers = {
     [PLUGIN_NAME]: {
-      command: path.join(absoluteInstallRoot, "runtime", "node.exe"),
+      command: path.join(absoluteInstallRoot, ...runtime.installedSegments),
       args: [path.join(absoluteInstallRoot, "dist", "server.mjs")],
     },
   };
@@ -162,7 +182,7 @@ export async function writeMcpConfigurations({ pluginRoot, installRoot }) {
   const compatibleConfiguration = {
     mcpServers: {
       [PLUGIN_NAME]: {
-        command: `${portableRoot}/runtime/node.exe`,
+        command: `${portableRoot}/${runtime.portablePath}`,
         args: [`${portableRoot}/dist/server.mjs`],
       },
     },
@@ -352,8 +372,8 @@ function parseOptions(args) {
   return { command, options };
 }
 
-function requireOnlyOptions(options, requiredNames) {
-  const expected = new Set(requiredNames);
+function requireOptions(options, requiredNames, optionalNames = []) {
+  const expected = new Set([...requiredNames, ...optionalNames]);
   for (const name of Object.keys(options)) {
     if (!expected.has(name)) {
       throw new Error(`Unknown option: --${name}`);
@@ -370,13 +390,18 @@ async function main() {
   const { command, options } = parseOptions(process.argv.slice(2));
   let result;
   if (command === "write-mcp") {
-    requireOnlyOptions(options, ["plugin-root", "install-root"]);
+    requireOptions(
+      options,
+      ["plugin-root", "install-root"],
+      ["runtime-platform"],
+    );
     result = await writeMcpConfigurations({
       pluginRoot: options["plugin-root"],
       installRoot: options["install-root"],
+      runtimePlatform: options["runtime-platform"] ?? "windows",
     });
   } else if (command === "merge-marketplace") {
-    requireOnlyOptions(options, ["marketplace", "install-root"]);
+    requireOptions(options, ["marketplace", "install-root"]);
     result = await mergeMarketplace({
       marketplacePath: options.marketplace,
       installRoot: options["install-root"],

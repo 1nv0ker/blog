@@ -82,16 +82,19 @@ test('content configuration persists and validates a custom public site origin',
 
 test('content setup has a distinct five-field command and safe summary', async () => {
   const launcher = createConfigurationSetupLauncher({
-    platform: 'linux',
-    execPath: '/usr/bin/node',
-    cliPath: '/plugin/dist/cli.mjs',
-    homeDir: '/tmp/home',
+    platform: 'darwin',
+    execPath: '/Users/current-user/plugins/sanityblog/runtime/bin/node',
+    cliPath: '/Users/current-user/plugins/sanityblog/dist/cli.mjs',
+    homeDir: '/Users/current-user',
     setupMode: 'content',
   })
   const launched = await launcher.start()
   assert.deepEqual(launched.manualCommand, {
-    command: '/usr/bin/node',
-    args: ['/plugin/dist/cli.mjs', '--init-content'],
+    command: '/Users/current-user/plugins/sanityblog/runtime/bin/node',
+    args: [
+      '/Users/current-user/plugins/sanityblog/dist/cli.mjs',
+      '--init-content',
+    ],
   })
 
   const summary = contentConfigurationSetupSummary(launched)
