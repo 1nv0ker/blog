@@ -127,7 +127,7 @@ export function registerBlogTools(server, service) {
     {
       title: 'Prepare a Sanity blog publish bundle',
       description:
-        'Reserves a slug and returns staging paths for a new or complete existing local article bundle.',
+        'Reserves a slug and returns the existing staging paths for a new or complete local article bundle whose safe sibling assets may include referenced body and Open Graph images.',
       inputSchema: BASE_SLUG_INPUT,
       annotations: LOCAL_WRITE,
     },
@@ -139,7 +139,7 @@ export function registerBlogTools(server, service) {
     {
       title: 'Prepare a strict Sanity blog update bundle',
       description:
-        'Returns staging paths only when the complete local article bundle already exists; it never creates an article.',
+        'Returns staging paths and copies every referenced local image only when the complete local article bundle already exists; it never creates an article.',
       inputSchema: SLUG_INPUT,
       annotations: LOCAL_WRITE,
     },
@@ -201,7 +201,7 @@ export function registerBlogTools(server, service) {
     {
       title: 'Commit a staged Sanity blog bundle',
       description:
-        'Atomically commits the complete reserved Markdown, article JSON, and PNG cover bundle after baseline checks.',
+        'Atomically commits the complete reserved Markdown, article JSON, PNG cover, and referenced local image set after baseline checks.',
       inputSchema: RESERVATION_INPUT,
       annotations: LOCAL_DESTRUCTIVE,
     },

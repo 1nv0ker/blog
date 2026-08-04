@@ -13,8 +13,17 @@ import {pathToFileURL} from 'node:url'
 import {materializeArticlePreviewAssets} from './article.mjs'
 
 const MAX_MARKDOWN_BYTES = 2 * 1024 * 1024
-const MAX_PREVIEW_BYTES = 32 * 1024 * 1024
+const MAX_PREVIEW_BYTES = 384 * 1024 * 1024
 const FILE_MODE = 0o600
+const SHA256_PATTERN = /^[0-9a-f]{64}$/u
+const SAFE_ASSET_PATH = /^\.\/assets\/[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u
+const SAFE_IMAGE_MIME_TYPES = new Set([
+  'image/avif',
+  'image/gif',
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+])
 
 export class PreviewError extends Error {
   constructor(code, message) {
@@ -32,7 +41,7 @@ function fail(code, message) {
 }
 
 function escapeHtml(value) {
-  return String(value)
+  return String(value ?? '')
     .replaceAll('&', '&amp;')
     .replaceAll('<', '&lt;')
     .replaceAll('>', '&gt;')
@@ -123,9 +132,13 @@ function safeLinkHref(value) {
   }
 }
 
-function renderMarkdownInline(source, depth = 0) {
+function renderMarkdownInline(source, localAssets, depth = 0) {
   if (depth > 12 || source.length === 0) return escapeHtml(source)
   const patterns = [
+    {
+      kind: 'image',
+      expression: /!\[([^\]\n]*)\]\(([^)\s]+)(?:\s+(?:"[^"\n]*"|'[^'\n]*'))?\)/u,
+    },
     {kind: 'code', expression: /`([^`\n]+)`/u},
     {kind: 'link', expression: /\[([^\]\n]+)\]\(([^)\s]+)\)/u},
     {kind: 'strong', expression: /\*\*([^*\n]+)\*\*/u},
@@ -146,23 +159,29 @@ function renderMarkdownInline(source, depth = 0) {
   const before = source.slice(0, selected.match.index)
   const after = source.slice(selected.match.index + selected.match[0].length)
   let rendered
-  if (selected.kind === 'code') {
+  if (selected.kind === 'image') {
+    const alt = selected.match[1]
+    const asset = localAssets.byPath.get(selected.match[2])
+    rendered = asset
+      ? renderEmbeddedImage(asset, alt, 'markdown-image')
+      : `<span class="unsafe-image" role="img" aria-label="${escapeHtml(alt || 'Image omitted')}">Image omitted: ${escapeHtml(alt || 'unvalidated source')}</span>`
+  } else if (selected.kind === 'code') {
     rendered = `<code>${escapeHtml(selected.match[1])}</code>`
   } else if (selected.kind === 'link') {
-    const label = renderMarkdownInline(selected.match[1], depth + 1)
+    const label = renderMarkdownInline(selected.match[1], localAssets, depth + 1)
     const href = selected.match[2]
     rendered = safeLinkHref(href)
       ? `<a href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer">${label}</a>`
       : `<span class="unsafe-link" title="Unsupported link omitted">${label}</span>`
   } else if (selected.kind === 'strong') {
-    rendered = `<strong>${renderMarkdownInline(selected.match[1], depth + 1)}</strong>`
+    rendered = `<strong>${renderMarkdownInline(selected.match[1], localAssets, depth + 1)}</strong>`
   } else {
-    rendered = `<em>${renderMarkdownInline(selected.match[1], depth + 1)}</em>`
+    rendered = `<em>${renderMarkdownInline(selected.match[1], localAssets, depth + 1)}</em>`
   }
-  return `${escapeHtml(before)}${rendered}${renderMarkdownInline(after, depth + 1)}`
+  return `${escapeHtml(before)}${rendered}${renderMarkdownInline(after, localAssets, depth + 1)}`
 }
 
-function renderMarkdown(source) {
+function renderMarkdown(source, localAssets) {
   const lines = source.replaceAll('\r\n', '\n').replaceAll('\r', '\n').split('\n')
   const output = []
   let paragraph = []
@@ -171,7 +190,7 @@ function renderMarkdown(source) {
 
   function flushParagraph() {
     if (paragraph.length > 0) {
-      output.push(`<p>${renderMarkdownInline(paragraph.join(' '))}</p>`)
+      output.push(`<p>${renderMarkdownInline(paragraph.join(' '), localAssets)}</p>`)
       paragraph = []
     }
   }
@@ -184,7 +203,7 @@ function renderMarkdown(source) {
 
   function flushQuote() {
     if (quote.length > 0) {
-      output.push(`<blockquote>${renderMarkdownInline(quote.join(' '))}</blockquote>`)
+      output.push(`<blockquote>${renderMarkdownInline(quote.join(' '), localAssets)}</blockquote>`)
       quote = []
     }
   }
@@ -223,7 +242,7 @@ function renderMarkdown(source) {
     if (heading) {
       flushFlow()
       const level = Math.max(2, heading[1].length)
-      output.push(`<h${level}>${renderMarkdownInline(heading[2])}</h${level}>`)
+      output.push(`<h${level}>${renderMarkdownInline(heading[2], localAssets)}</h${level}>`)
       index += 1
       continue
     }
@@ -245,7 +264,7 @@ function renderMarkdown(source) {
       if (list && list.tag !== tag) flushList()
       list ??= {tag, items: []}
       const level = Math.min(10, Math.floor(listItem[1].replaceAll('\t', '  ').length / 2) + 1)
-      list.items.push(`<li class="list-level-${level}">${renderMarkdownInline(listItem[4])}</li>`)
+      list.items.push(`<li class="list-level-${level}">${renderMarkdownInline(listItem[4], localAssets)}</li>`)
       index += 1
       continue
     }
@@ -259,9 +278,95 @@ function renderMarkdown(source) {
   return output.join('\n')
 }
 
-function localAssetUrl(source, localAssets) {
+function localAsset(source, localAssets) {
   if (!source || typeof source !== 'object' || !('path' in source)) return undefined
-  return localAssets.get(source.path)
+  return localAssets.byPath.get(source.path)
+}
+
+function renderEmbeddedImage(asset, alt, className) {
+  return `<img class="${className}" data-preview-asset="${asset.id}" alt="${escapeHtml(alt)}" decoding="async">`
+}
+
+function materializePreviewAssetMap(snapshot) {
+  let assets
+  try {
+    assets = materializeArticlePreviewAssets(snapshot)
+  } catch {
+    fail(
+      'PREVIEW_ASSETS_INVALID',
+      'The validated article assets could not be materialized.',
+    )
+  }
+  if (!Array.isArray(assets)) {
+    fail('PREVIEW_ASSETS_INVALID', 'The validated article assets are unavailable.')
+  }
+
+  const byPath = new Map()
+  const byDigest = new Map()
+  for (const asset of assets) {
+    if (
+      !asset ||
+      typeof asset !== 'object' ||
+      typeof asset.sourcePath !== 'string' ||
+      !SAFE_ASSET_PATH.test(asset.sourcePath) ||
+      typeof asset.mimeType !== 'string' ||
+      !SAFE_IMAGE_MIME_TYPES.has(asset.mimeType) ||
+      !Buffer.isBuffer(asset.bytes) ||
+      !SHA256_PATTERN.test(asset.sha256) ||
+      byPath.has(asset.sourcePath)
+    ) {
+      fail(
+        'PREVIEW_ASSETS_INVALID',
+        'A validated article image has invalid preview metadata.',
+      )
+    }
+    const sha256 = createHash('sha256').update(asset.bytes).digest('hex')
+    if (sha256 !== asset.sha256) {
+      fail(
+        'PREVIEW_ASSETS_INVALID',
+        'A validated article image changed before preview rendering.',
+      )
+    }
+    let definition = byDigest.get(asset.sha256)
+    if (definition && definition.mimeType !== asset.mimeType) {
+      fail(
+        'PREVIEW_ASSETS_INVALID',
+        'Equivalent validated article image bytes have conflicting MIME types.',
+      )
+    }
+    definition ??= Object.freeze({
+      id: `preview-asset-${asset.sha256}`,
+      mimeType: asset.mimeType,
+      base64: asset.bytes.toString('base64'),
+    })
+    byDigest.set(asset.sha256, definition)
+    byPath.set(asset.sourcePath, definition)
+  }
+  return Object.freeze({
+    byPath,
+    definitions: Object.freeze(
+      [...byDigest.values()].sort((left, right) => left.id.localeCompare(right.id)),
+    ),
+  })
+}
+
+function localized(value, locale, fallback = '') {
+  if (typeof value === 'string') return value
+  if (!value || typeof value !== 'object') return fallback
+  if (typeof value[locale] === 'string') return value[locale]
+  if (typeof value.en === 'string') return value.en
+  if (typeof value.zh === 'string') return value.zh
+  return fallback
+}
+
+function localizedKeywords(value, locale) {
+  if (Array.isArray(value)) {
+    return value.filter((keyword) => typeof keyword === 'string')
+  }
+  if (!value || typeof value !== 'object') return []
+  return Array.isArray(value[locale])
+    ? value[locale].filter((keyword) => typeof keyword === 'string')
+    : []
 }
 
 function localAssetPath(articlePath, source) {
@@ -299,8 +404,8 @@ function renderSpans(block) {
 }
 
 function renderImage(item, localAssets) {
-  const sourceUrl = localAssetUrl(item.source, localAssets)
-  if (!sourceUrl) {
+  const asset = localAsset(item.source, localAssets)
+  if (!asset) {
     return `<figure class="asset-placeholder" role="img" aria-label="${escapeHtml(item.alt)}">
       <div class="asset-placeholder__icon">◇</div>
       <strong>Remote Sanity image</strong>
@@ -308,7 +413,7 @@ function renderImage(item, localAssets) {
     </figure>`
   }
   return `<figure class="body-image">
-    <img src="${sourceUrl}" alt="${escapeHtml(item.alt)}">
+    ${renderEmbeddedImage(asset, item.alt, 'body-image__visual')}
     <figcaption>${escapeHtml(item.alt)}</figcaption>
   </figure>`
 }
@@ -363,15 +468,98 @@ function renderPortableText(items, localAssets) {
 }
 
 function renderCover(article, localAssets) {
-  const sourceUrl = localAssetUrl(article.coverImage.source, localAssets)
+  const asset = localAsset(article.coverImage.source, localAssets)
   const alt = `${article.coverImage.alt.en} / ${article.coverImage.alt.zh}`
-  if (!sourceUrl) {
+  if (!asset) {
     return `<div class="cover-placeholder" role="img" aria-label="${escapeHtml(alt)}">
       <span>Remote cover image</span>
       <strong>${escapeHtml(article.title.en)}</strong>
     </div>`
   }
-  return `<img class="cover" src="${sourceUrl}" alt="${escapeHtml(alt)}">`
+  return renderEmbeddedImage(asset, alt, 'cover')
+}
+
+function renderSeoImage(openGraph, locale, localAssets) {
+  if (!openGraph?.image) return ''
+  const alt = localized(openGraph.image.alt, locale, 'Open Graph image')
+  const asset = localAsset(openGraph.image.source, localAssets)
+  if (!asset) {
+    return `<section class="seo-og-image">
+      <h3>Open Graph image</h3>
+      <figure class="asset-placeholder seo-image" role="img" aria-label="${escapeHtml(alt)}">
+        <div class="asset-placeholder__icon" aria-hidden="true">◇</div>
+        <strong>Remote Sanity Open Graph image</strong>
+        <span>${escapeHtml(alt)}</span>
+      </figure>
+    </section>`
+  }
+  return `<section class="seo-og-image">
+    <h3>Open Graph image</h3>
+    <figure class="seo-image">
+      ${renderEmbeddedImage(asset, alt, 'seo-image__visual')}
+      <figcaption>${escapeHtml(alt)}</figcaption>
+    </figure>
+  </section>`
+}
+
+function renderRobots(robots) {
+  if (!robots) return 'Not specified (publisher defaults: index, follow)'
+  const index = robots.index === undefined
+    ? 'index (publisher default)'
+    : robots.index
+      ? 'index'
+      : 'noindex'
+  const follow = robots.follow === undefined
+    ? 'follow (publisher default)'
+    : robots.follow
+      ? 'follow'
+      : 'nofollow'
+  return `${index}, ${follow}`
+}
+
+function renderSitemap(sitemap) {
+  if (!sitemap) return 'Not specified (publisher default: included)'
+  if (sitemap.include === undefined) return 'Included (publisher default)'
+  return sitemap.include ? 'Included' : 'Excluded'
+}
+
+function renderSeo(article, locale, localAssets) {
+  const seo = article.seo
+  const title = localized(seo.title, locale)
+  const description = localized(seo.description, locale)
+  const keywords = localizedKeywords(seo.keywords, locale)
+  const canonical = localized(seo.canonicalUrl, locale)
+  const openGraph = seo.openGraph
+  const openGraphTitle = localized(openGraph?.title, locale)
+  const openGraphDescription = localized(openGraph?.description, locale)
+  return `<aside class="seo-card" aria-label="Full SEO preview">
+    <span class="seo-card__label">Full SEO preview</span>
+    <section>
+      <h3>Search result</h3>
+      <strong class="search-title">${escapeHtml(title)}</strong>
+      <div class="canonical">${canonical
+        ? escapeHtml(canonical)
+        : '<span class="derived-value">Derived by the publisher from the site origin and slug</span>'}</div>
+      <p>${escapeHtml(description)}</p>
+    </section>
+    <dl class="seo-fields">
+      <div><dt>Keywords</dt><dd>${keywords.length > 0
+        ? keywords.map((keyword) => escapeHtml(keyword)).join(', ')
+        : 'Not specified'}</dd></div>
+      <div><dt>Canonical URL</dt><dd>${canonical
+        ? escapeHtml(canonical)
+        : '<span class="derived-value">Publisher-derived</span>'}</dd></div>
+      <div><dt>Robots</dt><dd>${escapeHtml(renderRobots(seo.robots))}</dd></div>
+      <div><dt>Sitemap</dt><dd>${escapeHtml(renderSitemap(seo.sitemap))}</dd></div>
+      <div><dt>Open Graph title</dt><dd>${openGraphTitle
+        ? escapeHtml(openGraphTitle)
+        : 'Not specified'}</dd></div>
+      <div><dt>Open Graph description</dt><dd>${openGraphDescription
+        ? escapeHtml(openGraphDescription)
+        : 'Not specified'}</dd></div>
+    </dl>
+    ${renderSeoImage(openGraph, locale, localAssets)}
+  </aside>`
 }
 
 function renderLocale(article, locale, label, localAssets) {
@@ -384,11 +572,7 @@ function renderLocale(article, locale, label, localAssets) {
       <p class="excerpt">${escapeHtml(excerpt)}</p>
     </header>
     <div class="prose">${renderPortableText(article.body[locale], localAssets)}</div>
-    <aside class="seo-card" aria-label="SEO preview">
-      <span>SEO preview</span>
-      <strong>${escapeHtml(article.seo.title[locale])}</strong>
-      <p>${escapeHtml(article.seo.description[locale])}</p>
-    </aside>
+    ${renderSeo(article, locale, localAssets)}
   </article>`
 }
 
@@ -399,10 +583,60 @@ function countRemoteImages(article) {
       if (item._type === 'image' && 'assetRef' in item.source) count += 1
     }
   }
+  if (
+    article.seo.openGraph?.image?.source &&
+    'assetRef' in article.seo.openGraph.image.source
+  ) {
+    count += 1
+  }
   return count
 }
 
+function renderAssetBootstrap(localAssets, scriptNonce) {
+  if (localAssets.definitions.length === 0) return ''
+  const payloads = localAssets.definitions
+    .map(
+      (asset) => `<script class="preview-asset-payload" type="application/octet-stream" nonce="${scriptNonce}" id="${asset.id}" data-preview-mime="${escapeHtml(asset.mimeType)}">${asset.base64}</script>`,
+    )
+    .join('\n')
+  return `<div class="preview-asset-store" hidden aria-hidden="true">
+    ${payloads}
+  </div>
+  <script nonce="${scriptNonce}">
+    (() => {
+      'use strict'
+      const objectUrls = []
+      const sources = new Map()
+      for (const payload of document.querySelectorAll('script.preview-asset-payload')) {
+        const binary = atob(payload.textContent.trim())
+        const bytes = new Uint8Array(binary.length)
+        for (let index = 0; index < binary.length; index += 1) {
+          bytes[index] = binary.charCodeAt(index)
+        }
+        const objectUrl = URL.createObjectURL(
+          new Blob([bytes], {type: payload.dataset.previewMime}),
+        )
+        sources.set(payload.id, objectUrl)
+        objectUrls.push(objectUrl)
+        payload.remove()
+      }
+      for (const image of document.querySelectorAll('img[data-preview-asset]')) {
+        const objectUrl = sources.get(image.dataset.previewAsset)
+        if (objectUrl) image.src = objectUrl
+      }
+      window.addEventListener(
+        'pagehide',
+        () => {
+          for (const objectUrl of objectUrls) URL.revokeObjectURL(objectUrl)
+        },
+        {once: true},
+      )
+    })()
+  </script>`
+}
+
 function renderHtml(article, markdownSource, previewRevision, localAssets) {
+  const scriptNonce = randomUUID().replaceAll('-', '')
   const published = article.publishedAt
     ? `<span>Published timestamp: ${escapeHtml(article.publishedAt)}</span>`
     : '<span>Draft without a fixed publication timestamp</span>'
@@ -412,7 +646,7 @@ function renderHtml(article, markdownSource, previewRevision, localAssets) {
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex,nofollow">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-src 'none'; object-src 'none'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data: blob:; script-src 'nonce-${scriptNonce}'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-src 'none'; object-src 'none'">
   <title>${escapeHtml(article.title.en)} — local preview</title>
   <style>
     :root { color-scheme: light dark; --bg: #f4f1ea; --paper: #fffdf8; --ink: #17201d; --muted: #66706c; --line: #d9d3c8; --accent: #0f766e; --soft: #dff4ef; }
@@ -447,6 +681,8 @@ function renderHtml(article, markdownSource, previewRevision, localAssets) {
     .list-level-3 { margin-left: 2.4em; }
     .body-image { margin: 30px 0; }
     .body-image img { display: block; width: 100%; height: auto; border-radius: 14px; }
+    .markdown-image { display: block; max-width: 100%; height: auto; margin: 26px auto; border-radius: 14px; }
+    .unsafe-image { display: inline-block; padding: 8px 11px; border: 1px dashed #dc2626; border-radius: 8px; color: var(--muted); font: 13px/1.4 Inter, ui-sans-serif, system-ui, sans-serif; }
     figcaption { margin-top: 8px; color: var(--muted); font: 13px/1.5 Inter, ui-sans-serif, system-ui, sans-serif; }
     .asset-placeholder { min-height: 220px; display: grid; place-content: center; gap: 8px; padding: 26px; border: 1px dashed var(--line); border-radius: 16px; background: color-mix(in srgb, var(--soft) 38%, var(--paper)); text-align: center; font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
     .asset-placeholder__icon { color: var(--accent); font-size: 42px; }
@@ -455,9 +691,19 @@ function renderHtml(article, markdownSource, previewRevision, localAssets) {
     .code-block pre { margin: 0; padding: 18px; overflow: auto; }
     .code-block code { padding: 0; background: none; color: inherit; }
     .seo-card { margin-top: 46px; padding: 18px; border: 1px solid var(--line); border-radius: 14px; background: color-mix(in srgb, var(--soft) 46%, var(--paper)); font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
-    .seo-card span { display: block; margin-bottom: 8px; color: var(--accent); font-size: 11px; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; }
+    .seo-card__label { display: block; margin-bottom: 8px; color: var(--accent); font-size: 11px; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; }
+    .seo-card h3 { margin: 18px 0 8px; font-size: 14px; }
     .seo-card strong { display: block; color: #1558d6; font-size: 18px; line-height: 1.35; }
     .seo-card p { margin: 7px 0 0; color: var(--muted); font-size: 14px; line-height: 1.5; }
+    .canonical { margin-top: 4px; overflow-wrap: anywhere; color: #15803d; font-size: 13px; }
+    .derived-value { color: var(--muted); font-style: italic; }
+    .seo-fields { display: grid; gap: 8px; margin: 18px 0 0; }
+    .seo-fields div { display: grid; grid-template-columns: minmax(120px, .55fr) minmax(0, 1fr); gap: 12px; padding-top: 8px; border-top: 1px solid var(--line); }
+    .seo-fields dt { color: var(--muted); font-size: 12px; font-weight: 700; }
+    .seo-fields dd { margin: 0; overflow-wrap: anywhere; font-size: 13px; }
+    .seo-og-image { margin-top: 18px; }
+    .seo-image { margin: 0; min-height: 0; }
+    .seo-image img { display: block; width: 100%; height: auto; border-radius: 10px; }
     .markdown-card { margin-top: 18px; padding: clamp(22px, 4vw, 44px); border: 1px solid var(--line); border-radius: 24px; background: var(--paper); box-shadow: 0 18px 44px rgba(28, 40, 35, .07); }
     .markdown-card summary { cursor: pointer; color: var(--ink); font-size: 21px; font-weight: 800; }
     .markdown-note { margin-top: 12px; padding: 12px 14px; border-radius: 12px; background: color-mix(in srgb, var(--soft) 52%, var(--paper)); color: var(--muted); font-size: 14px; }
@@ -485,8 +731,9 @@ function renderHtml(article, markdownSource, previewRevision, localAssets) {
     <details class="markdown-card" open>
       <summary>Markdown visual preview</summary>
       <div class="markdown-note">This pane safely renders the sibling Markdown source. Compare it with the JSON payload preview above before publishing.</div>
-      <div class="prose markdown-prose">${renderMarkdown(markdownSource)}</div>
+      <div class="prose markdown-prose">${renderMarkdown(markdownSource, localAssets)}</div>
     </details>
+    ${renderAssetBootstrap(localAssets, scriptNonce)}
     <footer>The upper panes render the validated JSON payload; the expandable lower pane renders the sibling Markdown source. Final site typography and components may differ.</footer>
   </main>
 </body>
@@ -513,7 +760,7 @@ async function assertReplaceablePreview(previewPath) {
 async function writePreview(previewPath, source) {
   const bytes = Buffer.byteLength(source)
   if (bytes <= 0 || bytes > MAX_PREVIEW_BYTES) {
-    fail('PREVIEW_SIZE_INVALID', 'The generated preview exceeds the 32 MiB limit.')
+    fail('PREVIEW_SIZE_INVALID', 'The generated preview exceeds the 384 MiB limit.')
   }
   await assertReplaceablePreview(previewPath)
 
@@ -575,12 +822,7 @@ export async function renderArticlePreview(snapshot) {
     .update('\0markdown\0')
     .update(markdownSha256)
     .digest('hex')
-  const localAssets = new Map(
-    materializeArticlePreviewAssets(snapshot).map((asset) => [
-      asset.sourcePath,
-      `data:${asset.mimeType};base64,${asset.bytes.toString('base64')}`,
-    ]),
-  )
+  const localAssets = materializePreviewAssetMap(snapshot)
   const source = renderHtml(
     snapshot.article,
     markdownSource,

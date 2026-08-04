@@ -5,6 +5,7 @@ import {
   lstat,
   mkdir,
   open,
+  readdir,
   readFile,
   rename,
   rm,
@@ -21,7 +22,20 @@ const CONTROL_MODE = 0o700;
 const FILE_MODE = 0o600;
 const MAX_STAGING_TEXT_BYTES = 2 * 1024 * 1024;
 const MAX_STAGING_COVER_BYTES = 20 * 1024 * 1024;
+const MAX_STAGING_ASSETS = 10;
+const MAX_STAGING_ASSET_TOTAL_BYTES = 256 * 1024 * 1024;
 const READ_CHUNK_BYTES = 64 * 1024;
+const SAFE_LOCAL_ASSET_PATH =
+  /^\.\/assets\/([A-Za-z0-9][A-Za-z0-9._-]{0,127})$/u;
+const ASSET_TRANSACTION_LOCK = ".asset-transaction";
+const SUPPORTED_IMAGE_EXTENSIONS = new Set([
+  ".avif",
+  ".gif",
+  ".jpeg",
+  ".jpg",
+  ".png",
+  ".webp",
+]);
 
 export class WorkspaceError extends Error {
   constructor(code, message, details = undefined) {
@@ -222,25 +236,186 @@ async function inspectBundle(basePath, slug) {
   };
 }
 
-async function digestBundle(bundle) {
+function parseArticleForAssets(articleBytes) {
+  let article;
+  try {
+    article = JSON.parse(articleBytes.toString("utf8"));
+  } catch {
+    fail("STAGING_BUNDLE_INVALID", "The staged article is not valid JSON.");
+  }
+  if (!article || typeof article !== "object" || Array.isArray(article)) {
+    fail("STAGING_BUNDLE_INVALID", "The staged article JSON must be an object.");
+  }
+  return article;
+}
+
+function collectDeclaredLocalAssetNames(article) {
+  const assetNames = new Set();
+  const appendLocalImage = (source, location) => {
+    if (!source || typeof source.path !== "string") {
+      return;
+    }
+    const match = SAFE_LOCAL_ASSET_PATH.exec(source.path);
+    if (!match) {
+      fail(
+        "STAGING_BUNDLE_INVALID",
+        `${location} must use a safe flat ./assets/<filename> path.`,
+      );
+    }
+
+    const filename = match[1];
+    if (!SUPPORTED_IMAGE_EXTENSIONS.has(path.extname(filename).toLowerCase())) {
+      fail(
+        "STAGING_BUNDLE_INVALID",
+        `${location} must reference a supported image file.`,
+      );
+    }
+    assetNames.add(filename);
+  };
+
+  appendLocalImage(article.coverImage?.source, "coverImage.source");
+  for (const locale of ["en", "zh"]) {
+    const body = article.body?.[locale];
+    if (!Array.isArray(body)) {
+      continue;
+    }
+    for (const [index, item] of body.entries()) {
+      if (item?._type === "image") {
+        appendLocalImage(item.source, `body.${locale}.${index}.source`);
+      }
+    }
+  }
+  appendLocalImage(
+    article.seo?.openGraph?.image?.source,
+    "seo.openGraph.image.source",
+  );
+
+  return [...assetNames].sort();
+}
+
+function collectLocalAssetNames(article, slug) {
+  const referencedAssetNames = collectDeclaredLocalAssetNames(article);
+  if (referencedAssetNames.length > MAX_STAGING_ASSETS) {
+    fail(
+      "STAGING_BUNDLE_INVALID",
+      `The article bundle references more than ${MAX_STAGING_ASSETS} local images.`,
+    );
+  }
+  const assetNames = [...new Set([`${slug}-cover.png`, ...referencedAssetNames])];
+  const identities = new Set(assetNames.map((filename) => filename.toLowerCase()));
+  if (identities.size !== assetNames.length) {
+    fail(
+      "STAGING_BUNDLE_INVALID",
+      "Local image filenames must be unique without case distinctions.",
+    );
+  }
+  return assetNames.sort();
+}
+
+function hasImageSignature(bytes, extension) {
+  if (extension === ".png") {
+    return bytes.subarray(0, PNG_SIGNATURE.length).equals(PNG_SIGNATURE);
+  }
+  if (extension === ".jpg" || extension === ".jpeg") {
+    return (
+      bytes.length >= 3 &&
+      bytes[0] === 0xff &&
+      bytes[1] === 0xd8 &&
+      bytes[2] === 0xff
+    );
+  }
+  if (extension === ".gif") {
+    const signature = bytes.subarray(0, 6).toString("ascii");
+    return signature === "GIF87a" || signature === "GIF89a";
+  }
+  if (extension === ".webp") {
+    return (
+      bytes.subarray(0, 4).toString("ascii") === "RIFF" &&
+      bytes.subarray(8, 12).toString("ascii") === "WEBP"
+    );
+  }
+  if (extension === ".avif") {
+    const box = bytes.subarray(0, 32).toString("ascii");
+    return box.slice(4, 8) === "ftyp" && /avif|avis/u.test(box.slice(8));
+  }
+  return false;
+}
+
+async function readCompleteBundle(bundle, slug) {
+  const [markdownBytes, articleBytes] = await Promise.all([
+    readStableStagingFile(bundle.paths.markdownPath, {
+      label: "markdown",
+      maxBytes: MAX_STAGING_TEXT_BYTES,
+      limitDescription: "2 MiB",
+    }),
+    readStableStagingFile(bundle.paths.articlePath, {
+      label: "article JSON",
+      maxBytes: MAX_STAGING_TEXT_BYTES,
+      limitDescription: "2 MiB",
+    }),
+  ]);
+  const article = parseArticleForAssets(articleBytes);
+  const assetNames = collectLocalAssetNames(article, slug);
+  const assetEntries = await Promise.all(
+    assetNames.map(async (filename) => {
+      const bytes = await readStableStagingFile(
+        path.join(path.dirname(bundle.paths.coverPath), filename),
+        {
+          label: `image asset ${filename}`,
+          maxBytes: MAX_STAGING_COVER_BYTES,
+          limitDescription: "20 MiB",
+        },
+      );
+      if (!hasImageSignature(bytes, path.extname(filename).toLowerCase())) {
+        if (filename === `${slug}-cover.png`) {
+          fail("STAGING_BUNDLE_INVALID", "The staged cover must be a PNG image.");
+        }
+        fail(
+          "STAGING_BUNDLE_INVALID",
+          `The staged image bytes do not match the extension: ${filename}.`,
+        );
+      }
+      return [filename, bytes];
+    }),
+  );
+  const totalAssetBytes = assetEntries.reduce(
+    (total, [, bytes]) => total + bytes.length,
+    0,
+  );
+  if (totalAssetBytes > MAX_STAGING_ASSET_TOTAL_BYTES) {
+    fail(
+      "STAGING_BUNDLE_INVALID",
+      "The staged image assets exceed the 256 MiB total limit.",
+    );
+  }
+
+  return {
+    markdownBytes,
+    articleBytes,
+    article,
+    assetEntries,
+    assetNames,
+  };
+}
+
+async function digestBundle(bundle, slug) {
   if (bundle.state === "missing") {
-    return { state: "missing", digest: null };
+    return { state: "missing", digest: null, assetNames: [] };
   }
   if (bundle.state !== "complete") {
     fail("LOCAL_BUNDLE_INCOMPLETE", "The local article bundle is incomplete.");
   }
 
+  const snapshot = await readCompleteBundle(bundle, slug);
   const hash = createHash("sha256");
-  for (const [label, fileLabel, entryPath, maxBytes, limitDescription] of [
-    ["markdown", "markdown", bundle.paths.markdownPath, MAX_STAGING_TEXT_BYTES, "2 MiB"],
-    ["article", "article JSON", bundle.paths.articlePath, MAX_STAGING_TEXT_BYTES, "2 MiB"],
-    ["cover", "cover", bundle.paths.coverPath, MAX_STAGING_COVER_BYTES, "20 MiB"],
+  for (const [label, bytes] of [
+    ["markdown", snapshot.markdownBytes],
+    ["article", snapshot.articleBytes],
+    ...snapshot.assetEntries.map(([filename, bytes]) => [
+      `asset:${filename}`,
+      bytes,
+    ]),
   ]) {
-    const bytes = await readStableStagingFile(entryPath, {
-      label: fileLabel,
-      maxBytes,
-      limitDescription,
-    });
     hash.update(label);
     hash.update("\0");
     hash.update(String(bytes.length));
@@ -248,7 +423,11 @@ async function digestBundle(bundle) {
     hash.update(bytes);
     hash.update("\0");
   }
-  return { state: "complete", digest: hash.digest("hex") };
+  return {
+    state: "complete",
+    digest: hash.digest("hex"),
+    assetNames: snapshot.assetNames,
+  };
 }
 
 function sameBaseline(left, right) {
@@ -309,7 +488,7 @@ async function readReservationMetadata(workspace, slug, reservationId) {
   return { metadata, lockPath };
 }
 
-async function copyExistingBundle(source, destination) {
+async function copyExistingBundle(source, destination, assetNames) {
   await assertDirectory(path.dirname(destination.coverPath), {
     create: true,
     privateControl: true,
@@ -317,7 +496,10 @@ async function copyExistingBundle(source, destination) {
   for (const [from, to] of [
     [source.markdownPath, destination.markdownPath],
     [source.articlePath, destination.articlePath],
-    [source.coverPath, destination.coverPath],
+    ...assetNames.map((filename) => [
+      path.join(path.dirname(source.coverPath), filename),
+      path.join(path.dirname(destination.coverPath), filename),
+    ]),
   ]) {
     try {
       await copyFile(from, to);
@@ -341,7 +523,7 @@ async function prepare({ slug, config, requireExisting }) {
   }
 
   const mode = localBundle.state === "complete" ? "update" : "create";
-  const baseline = await digestBundle(localBundle);
+  const baseline = await digestBundle(localBundle, slug);
   const reservationId = randomUUID();
   const lockPath = path.join(workspace.reservationsRoot, slug);
   const stagingPath = path.join(workspace.stagingRoot, reservationId);
@@ -373,11 +555,18 @@ async function prepare({ slug, config, requireExisting }) {
     });
 
     if (mode === "update") {
-      await copyExistingBundle(localBundle.paths, stagingBundle);
-      const stagedBaseline = await digestBundle({
-        state: "complete",
-        paths: stagingBundle,
-      });
+      await copyExistingBundle(
+        localBundle.paths,
+        stagingBundle,
+        baseline.assetNames,
+      );
+      const stagedBaseline = await digestBundle(
+        {
+          state: "complete",
+          paths: stagingBundle,
+        },
+        slug,
+      );
       if (!sameBaseline(baseline, stagedBaseline)) {
         fail(
           "BASELINE_CHANGED",
@@ -537,51 +726,77 @@ async function assertCommitReady(stagingBundle, slug) {
     fail("STAGING_BUNDLE_INCOMPLETE", "The staging bundle must contain all three files.");
   }
 
-  const [markdownBytes, articleBytes, cover] = await Promise.all([
-    readStableStagingFile(stagingBundle.markdownPath, {
-      label: "markdown",
-      maxBytes: MAX_STAGING_TEXT_BYTES,
-      limitDescription: "2 MiB",
-    }),
-    readStableStagingFile(stagingBundle.articlePath, {
-      label: "article JSON",
-      maxBytes: MAX_STAGING_TEXT_BYTES,
-      limitDescription: "2 MiB",
-    }),
-    readStableStagingFile(stagingBundle.coverPath, {
-      label: "cover",
-      maxBytes: MAX_STAGING_COVER_BYTES,
-      limitDescription: "20 MiB",
-    }),
-  ]);
-  const markdown = markdownBytes.toString("utf8");
-  const articleText = articleBytes.toString("utf8");
+  const snapshot = await readCompleteBundle(staged, slug);
+  const markdown = snapshot.markdownBytes.toString("utf8");
+  const articleText = snapshot.articleBytes.toString("utf8");
 
   if (markdown.trim().length === 0 || articleText.trim().length === 0) {
     fail("STAGING_BUNDLE_INVALID", "Markdown and article JSON must not be empty.");
   }
 
-  let article;
-  try {
-    article = JSON.parse(articleText);
-  } catch {
-    fail("STAGING_BUNDLE_INVALID", "The staged article is not valid JSON.");
-  }
-  if (!article || typeof article !== "object" || Array.isArray(article)) {
-    fail("STAGING_BUNDLE_INVALID", "The staged article JSON must be an object.");
-  }
   const declaredSlug =
-    typeof article.slug === "string" ? article.slug : article.slug?.current;
+    typeof snapshot.article.slug === "string"
+      ? snapshot.article.slug
+      : snapshot.article.slug?.current;
   if (declaredSlug !== undefined && declaredSlug !== slug) {
     fail("STAGING_BUNDLE_INVALID", "The staged article slug does not match its reservation.");
   }
 
+  const cover = snapshot.assetEntries.find(
+    ([filename]) => filename === `${slug}-cover.png`,
+  )?.[1];
   if (
+    !cover ||
     cover.length < PNG_SIGNATURE.length ||
     !cover.subarray(0, PNG_SIGNATURE.length).equals(PNG_SIGNATURE)
   ) {
     fail("STAGING_BUNDLE_INVALID", "The staged cover must be a PNG image.");
   }
+
+  const validatedSources = new Map();
+  const addValidatedSource = (
+    source,
+    bytes,
+    label,
+    maxBytes,
+    limitDescription,
+  ) => {
+    validatedSources.set(source, {
+      digest: createHash("sha256").update(bytes).digest("hex"),
+      size: bytes.length,
+      label,
+      maxBytes,
+      limitDescription,
+    });
+  };
+  addValidatedSource(
+    stagingBundle.markdownPath,
+    snapshot.markdownBytes,
+    "markdown",
+    MAX_STAGING_TEXT_BYTES,
+    "2 MiB",
+  );
+  addValidatedSource(
+    stagingBundle.articlePath,
+    snapshot.articleBytes,
+    "article JSON",
+    MAX_STAGING_TEXT_BYTES,
+    "2 MiB",
+  );
+  for (const [filename, bytes] of snapshot.assetEntries) {
+    addValidatedSource(
+      path.join(path.dirname(stagingBundle.coverPath), filename),
+      bytes,
+      `image asset ${filename}`,
+      MAX_STAGING_COVER_BYTES,
+      "20 MiB",
+    );
+  }
+
+  return {
+    assetNames: snapshot.assetNames,
+    validatedSources,
+  };
 }
 
 async function assertCurrentBaseline(workspace, slug, expected) {
@@ -589,31 +804,175 @@ async function assertCurrentBaseline(workspace, slug, expected) {
   if (current.state === "partial") {
     fail("BASELINE_CHANGED", "The local article bundle changed after it was reserved.");
   }
-  const actual = await digestBundle(current);
+  let actual;
+  try {
+    actual = await digestBundle(current, slug);
+  } catch (error) {
+    if (
+      error instanceof WorkspaceError &&
+      [
+        "LOCAL_BUNDLE_INCOMPLETE",
+        "STAGING_BUNDLE_CHANGED",
+        "STAGING_BUNDLE_INVALID",
+        "UNSAFE_WORKSPACE_ENTRY",
+      ].includes(error.code)
+    ) {
+      fail("BASELINE_CHANGED", "The local article bundle changed after it was reserved.");
+    }
+    throw error;
+  }
   if (!sameBaseline(expected, actual)) {
     fail("BASELINE_CHANGED", "The local article bundle changed after it was reserved.");
   }
+  return actual;
 }
 
-function transactionPairs(stagingBundle, destinationBundle, backupRoot, slug) {
+function assetIdentity(filename) {
+  return filename.toLowerCase();
+}
+
+async function assertExclusiveAssetOwnership(workspace, slug, candidateNames) {
+  let entries;
+  try {
+    entries = await readdir(workspace.blogRoot);
+  } catch {
+    fail("WORKSPACE_IO_FAILED", "Unable to inspect article asset ownership.");
+  }
+
+  const candidateIdentities = new Set(candidateNames.map(assetIdentity));
+  for (const entryName of entries) {
+    if (!entryName.endsWith(".json")) {
+      continue;
+    }
+    const otherSlug = entryName.slice(0, -".json".length);
+    if (
+      otherSlug === slug ||
+      otherSlug.length > 96 ||
+      !SLUG_PATTERN.test(otherSlug)
+    ) {
+      continue;
+    }
+
+    const articlePath = path.join(workspace.blogRoot, entryName);
+    if ((await getEntryKind(articlePath)) !== "file") {
+      fail(
+        "UNSAFE_WORKSPACE_ENTRY",
+        "Another article JSON entry is not an ordinary file.",
+      );
+    }
+
+    let article;
+    try {
+      const bytes = await readStableStagingFile(articlePath, {
+        label: `article JSON ${entryName}`,
+        maxBytes: MAX_STAGING_TEXT_BYTES,
+        limitDescription: "2 MiB",
+      });
+      article = parseArticleForAssets(bytes);
+    } catch (error) {
+      if (error instanceof WorkspaceError) {
+        fail(
+          "INVALID_WORKSPACE",
+          "Another local article has invalid or unsafe asset metadata.",
+        );
+      }
+      throw error;
+    }
+
+    let claimedNames;
+    try {
+      claimedNames = [
+        `${otherSlug}-cover.png`,
+        ...collectDeclaredLocalAssetNames(article),
+      ];
+    } catch (error) {
+      if (error instanceof WorkspaceError) {
+        fail(
+          "INVALID_WORKSPACE",
+          "Another local article has invalid or unsafe asset metadata.",
+        );
+      }
+      throw error;
+    }
+
+    const conflict = claimedNames.find((filename) =>
+      candidateIdentities.has(assetIdentity(filename)),
+    );
+    if (conflict) {
+      fail(
+        "ASSET_OWNERSHIP_CONFLICT",
+        `The image asset ${conflict} is also owned by another local article.`,
+      );
+    }
+  }
+}
+
+async function acquireAssetTransactionLock(workspace) {
+  const lockPath = path.join(workspace.reservationsRoot, ASSET_TRANSACTION_LOCK);
+  try {
+    await mkdir(lockPath, { recursive: false, mode: CONTROL_MODE });
+  } catch (error) {
+    if (error?.code === "EEXIST") {
+      fail(
+        "ASSET_TRANSACTION_CONFLICT",
+        "Another article asset transaction is already in progress.",
+      );
+    }
+    fail("WORKSPACE_IO_FAILED", "Unable to lock the shared article assets.");
+  }
+
+  try {
+    await assertDirectory(lockPath, { privateControl: true });
+  } catch (error) {
+    await rm(lockPath, { recursive: true, force: true }).catch(() => {});
+    throw error;
+  }
+  return lockPath;
+}
+
+function transactionPairs(
+  stagingBundle,
+  destinationBundle,
+  backupRoot,
+  slug,
+  { mode, previousAssetNames, nextAssetNames, validatedSources },
+) {
   const backupBundle = bundlePaths(backupRoot, slug);
-  return [
+  const pairs = [
     {
       source: stagingBundle.markdownPath,
       destination: destinationBundle.markdownPath,
       backup: backupBundle.markdownPath,
+      destinationExists: mode === "update",
+      expected: validatedSources.get(stagingBundle.markdownPath),
     },
     {
       source: stagingBundle.articlePath,
       destination: destinationBundle.articlePath,
       backup: backupBundle.articlePath,
-    },
-    {
-      source: stagingBundle.coverPath,
-      destination: destinationBundle.coverPath,
-      backup: backupBundle.coverPath,
+      destinationExists: mode === "update",
+      expected: validatedSources.get(stagingBundle.articlePath),
     },
   ];
+  const previousAssets = new Set(previousAssetNames);
+  const nextAssets = new Set(nextAssetNames);
+  const allAssets = [...new Set([...previousAssets, ...nextAssets])].sort();
+  for (const filename of allAssets) {
+    pairs.push({
+      source: nextAssets.has(filename)
+        ? path.join(path.dirname(stagingBundle.coverPath), filename)
+        : null,
+      destination: path.join(path.dirname(destinationBundle.coverPath), filename),
+      backup: path.join(path.dirname(backupBundle.coverPath), filename),
+      destinationExists: previousAssets.has(filename),
+      expected: nextAssets.has(filename)
+        ? validatedSources.get(
+            path.join(path.dirname(stagingBundle.coverPath), filename),
+          )
+        : null,
+    });
+  }
+  return pairs;
 }
 
 const DEFAULT_TRANSACTION_OPS = Object.freeze({ rename });
@@ -638,27 +997,64 @@ async function rollbackTransaction({ moved, backedUp, fileOps }) {
   return !failed;
 }
 
-async function commitTransaction({
-  pairs,
-  mode,
-  fileOps = DEFAULT_TRANSACTION_OPS,
-}) {
+async function commitTransaction({ pairs, fileOps = DEFAULT_TRANSACTION_OPS }) {
   if (!fileOps || typeof fileOps.rename !== "function") {
     fail("WORKSPACE_IO_FAILED", "Invalid internal filesystem operations.");
+  }
+
+  for (const pair of pairs) {
+    const destinationKind = await getEntryKind(pair.destination);
+    if (
+      (pair.destinationExists && destinationKind !== "file") ||
+      (!pair.destinationExists && destinationKind !== "missing")
+    ) {
+      fail(
+        "BASELINE_CHANGED",
+        "The local article bundle changed before its transaction started.",
+      );
+    }
+    if (pair.source !== null && (await getEntryKind(pair.source)) !== "file") {
+      fail(
+        "UNSAFE_WORKSPACE_ENTRY",
+        "A staged bundle entry is no longer an ordinary file.",
+      );
+    }
+    if (pair.source !== null && !pair.expected) {
+      fail("WORKSPACE_IO_FAILED", "A staged bundle entry lacks a validated snapshot.");
+    }
   }
 
   const backedUp = [];
   const moved = [];
   try {
-    if (mode === "update") {
-      for (const pair of pairs) {
+    for (const pair of pairs) {
+      if (pair.destinationExists) {
         await fileOps.rename(pair.destination, pair.backup);
         backedUp.push(pair);
       }
     }
     for (const pair of pairs) {
-      await fileOps.rename(pair.source, pair.destination);
-      moved.push(pair);
+      if (pair.source !== null) {
+        await fileOps.rename(pair.source, pair.destination);
+        moved.push(pair);
+      }
+    }
+    for (const pair of moved) {
+      const bytes = await readStableStagingFile(pair.destination, {
+        label: pair.expected.label,
+        maxBytes: pair.expected.maxBytes,
+        limitDescription: pair.expected.limitDescription,
+      });
+      const digest = createHash("sha256").update(bytes).digest("hex");
+      if (
+        bytes.length !== pair.expected.size ||
+        digest !== pair.expected.digest
+      ) {
+        fail(
+          "STAGING_BUNDLE_CHANGED",
+          `The staged ${pair.expected.label} changed before promotion.`,
+        );
+      }
     }
   } catch {
     const rolledBack = await rollbackTransaction({ moved, backedUp, fileOps });
@@ -699,26 +1095,104 @@ export async function commitReservation({
   await assertDirectory(stagingAssetsPath, { privateControl: true });
 
   const stagingBundle = bundlePaths(stagingPath, slug);
-  await assertCommitReady(stagingBundle, slug);
-  await assertCurrentBaseline(workspace, slug, metadata.baseline);
-
-  const backupRoot = path.join(stagingPath, ".backup");
-  await assertDirectory(backupRoot, {
-    create: true,
-    privateControl: true,
-  });
-  await assertDirectory(path.join(backupRoot, "assets"), {
-    create: true,
-    privateControl: true,
-  });
+  const staged = await assertCommitReady(stagingBundle, slug);
   const destinationBundle = bundlePaths(workspace.blogRoot, slug);
-  const pairs = transactionPairs(stagingBundle, destinationBundle, backupRoot, slug);
-  await commitTransaction({ pairs, mode: metadata.mode, fileOps });
-
+  const assetLockPath = await acquireAssetTransactionLock(workspace);
+  let committed = false;
+  let result;
+  let operationError;
   try {
-    await cleanupOps.rm(stagingPath, { recursive: true, force: true });
-    await cleanupOps.rm(lockPath, { recursive: true, force: true });
+    const current = await assertCurrentBaseline(
+      workspace,
+      slug,
+      metadata.baseline,
+    );
+    await assertExclusiveAssetOwnership(
+      workspace,
+      slug,
+      [...new Set([...current.assetNames, ...staged.assetNames])],
+    );
+
+    const backupRoot = path.join(stagingPath, ".backup");
+    await assertDirectory(backupRoot, {
+      create: true,
+      privateControl: true,
+    });
+    await assertDirectory(path.join(backupRoot, "assets"), {
+      create: true,
+      privateControl: true,
+    });
+    const pairs = transactionPairs(
+      stagingBundle,
+      destinationBundle,
+      backupRoot,
+      slug,
+      {
+        mode: metadata.mode,
+        previousAssetNames: current.assetNames,
+        nextAssetNames: staged.assetNames,
+        validatedSources: staged.validatedSources,
+      },
+    );
+    await commitTransaction({ pairs, fileOps });
+    committed = true;
+
+    try {
+      await cleanupOps.rm(stagingPath, { recursive: true, force: true });
+      await cleanupOps.rm(lockPath, { recursive: true, force: true });
+    } catch {
+      fail(
+        "COMMIT_CLEANUP_FAILED",
+        "The article was committed, but reservation cleanup failed.",
+        {
+          committed: true,
+          slug,
+          reservationId,
+          mode: metadata.mode,
+          markdownPath: destinationBundle.markdownPath,
+          articlePath: destinationBundle.articlePath,
+          coverPath: destinationBundle.coverPath,
+        },
+      );
+    }
+    result = {
+      slug,
+      reservationId,
+      mode: metadata.mode,
+      markdownPath: destinationBundle.markdownPath,
+      articlePath: destinationBundle.articlePath,
+      coverPath: destinationBundle.coverPath,
+    };
+  } catch (error) {
+    operationError = error;
+  }
+
+  let assetLockCleanupFailed = false;
+  try {
+    await rm(assetLockPath, { recursive: true, force: true });
   } catch {
+    assetLockCleanupFailed = true;
+  }
+
+  if (operationError) {
+    if (committed && !(operationError instanceof WorkspaceError)) {
+      fail(
+        "COMMIT_CLEANUP_FAILED",
+        "The article was committed, but reservation cleanup failed.",
+        {
+          committed: true,
+          slug,
+          reservationId,
+          mode: metadata.mode,
+          markdownPath: destinationBundle.markdownPath,
+          articlePath: destinationBundle.articlePath,
+          coverPath: destinationBundle.coverPath,
+        },
+      );
+    }
+    throw operationError;
+  }
+  if (assetLockCleanupFailed) {
     fail(
       "COMMIT_CLEANUP_FAILED",
       "The article was committed, but reservation cleanup failed.",
@@ -733,15 +1207,7 @@ export async function commitReservation({
       },
     );
   }
-
-  return {
-    slug,
-    reservationId,
-    mode: metadata.mode,
-    markdownPath: destinationBundle.markdownPath,
-    articlePath: destinationBundle.articlePath,
-    coverPath: destinationBundle.coverPath,
-  };
+  return result;
 }
 
 export async function releaseReservation({ slug, reservationId, config }) {

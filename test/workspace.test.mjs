@@ -80,6 +80,66 @@ async function readBundle(paths) {
   };
 }
 
+function assetPath(paths, filename) {
+  return path.join(path.dirname(paths.coverPath), filename);
+}
+
+function articleWithLocalImages(
+  slug,
+  {
+    bodyEn = [],
+    bodyZh = bodyEn,
+    openGraphImage,
+    coverImage = `${slug}-cover.png`,
+    marker = "article",
+  } = {},
+) {
+  const image = (filename, locale) => ({
+    _type: "image",
+    source: { path: `./assets/${filename}` },
+    alt: `${locale} ${filename}`,
+  });
+  return {
+    slug,
+    title: marker,
+    coverImage: {
+      source: { path: `./assets/${coverImage}` },
+      alt: { en: "Cover", zh: "封面" },
+    },
+    body: {
+      en: bodyEn.map((filename) => image(filename, "English")),
+      zh: bodyZh.map((filename) => image(filename, "Chinese")),
+    },
+    ...(openGraphImage
+      ? {
+          seo: {
+            openGraph: {
+              image: {
+                source: { path: `./assets/${openGraphImage}` },
+                alt: { en: "Social image", zh: "社交图片" },
+              },
+            },
+          },
+        }
+      : {}),
+  };
+}
+
+async function writeArticleAndAssets(
+  paths,
+  slug,
+  article,
+  { marker = "article", assets = {} } = {},
+) {
+  await writeBundle(paths, slug, marker);
+  await writeFile(paths.articlePath, `${JSON.stringify(article, null, 2)}\n`, "utf8");
+  await Promise.all(
+    Object.entries(assets).map(([filename, bytes]) =>
+      writeFile(assetPath(paths, filename), bytes),
+    ),
+  );
+}
+
 test.afterEach(async () => {
   await Promise.all(
     [...roots].map(async (root) => {
@@ -327,6 +387,84 @@ test("prepare update copies a complete immutable baseline and release must match
   });
 });
 
+test("prepare update snapshots each referenced local image once and preserves its public shape", async () => {
+  const config = await makeWorkspace();
+  const slug = "media-post";
+  const paths = livePaths(config, slug);
+  const diagram = `${slug}-diagram.png`;
+  const social = `${slug}-social.png`;
+  const article = articleWithLocalImages(slug, {
+    bodyEn: [diagram],
+    bodyZh: [diagram],
+    openGraphImage: social,
+  });
+  await writeArticleAndAssets(paths, slug, article, {
+    assets: {
+      [diagram]: PNG_1X1,
+      [social]: Buffer.concat([PNG_1X1, Buffer.from("social")]),
+    },
+  });
+  const unrelated = assetPath(paths, "another-post-diagram.png");
+  await writeFile(unrelated, Buffer.from("unrelated"));
+
+  const prepared = await prepareUpdate({ slug, config });
+
+  assert.deepEqual(Object.keys(prepared).sort(), [
+    "articlePath",
+    "coverPath",
+    "markdownPath",
+    "mode",
+    "reservationId",
+    "slug",
+  ]);
+  assert.deepEqual(await readFile(assetPath(prepared, diagram)), PNG_1X1);
+  assert.deepEqual(
+    await readFile(assetPath(prepared, social)),
+    Buffer.concat([PNG_1X1, Buffer.from("social")]),
+  );
+  await assert.rejects(readFile(assetPath(prepared, "another-post-diagram.png")), {
+    code: "ENOENT",
+  });
+
+  await releaseReservation({
+    slug,
+    reservationId: prepared.reservationId,
+    config,
+  });
+});
+
+test("a referenced image byte change invalidates the reserved baseline", async () => {
+  const config = await makeWorkspace();
+  const slug = "asset-baseline";
+  const paths = livePaths(config, slug);
+  const diagram = `${slug}-diagram.png`;
+  const article = articleWithLocalImages(slug, { bodyEn: [diagram] });
+  await writeArticleAndAssets(paths, slug, article, {
+    assets: { [diagram]: PNG_1X1 },
+  });
+  const prepared = await prepareUpdate({ slug, config });
+  await writeFile(
+    assetPath(paths, diagram),
+    Buffer.concat([PNG_1X1, Buffer.from("externally changed")]),
+  );
+
+  await assert.rejects(
+    commitReservation({
+      slug,
+      reservationId: prepared.reservationId,
+      config,
+    }),
+    (error) => error instanceof WorkspaceError && error.code === "BASELINE_CHANGED",
+  );
+  assert.deepEqual(await readFile(assetPath(prepared, diagram)), PNG_1X1);
+
+  await releaseReservation({
+    slug,
+    reservationId: prepared.reservationId,
+    config,
+  });
+});
+
 test("commit rejects a symbolic-link staging directory", async (t) => {
   const config = await makeWorkspace();
   const prepared = await preparePublish({ baseSlug: "linked-staging", config });
@@ -411,6 +549,222 @@ test("commit rejects a symbolic-link staging assets directory", async (t) => {
   });
 });
 
+test("commit rejects unsafe, unsupported, case-ambiguous, and excessive local image references", async () => {
+  const config = await makeWorkspace();
+  const slug = "asset-policy";
+  const prepared = await preparePublish({ baseSlug: slug, config });
+  await writeBundle(prepared, slug);
+
+  const invalidArticles = [
+    {
+      ...articleWithLocalImages(slug),
+      body: {
+        en: [
+          {
+            _type: "image",
+            source: { path: "./assets/nested/image.png" },
+            alt: "Nested",
+          },
+        ],
+        zh: [],
+      },
+    },
+    articleWithLocalImages(slug, { bodyEn: [`${slug}-diagram.svg`] }),
+    articleWithLocalImages(slug, {
+      bodyEn: [`${slug}-diagram.png`, `${slug}-DIAGRAM.png`],
+    }),
+    articleWithLocalImages(slug, {
+      bodyEn: Array.from(
+        { length: 10 },
+        (_, index) => `${slug}-body-${index}.png`,
+      ),
+    }),
+  ];
+
+  for (const article of invalidArticles) {
+    await writeFile(
+      prepared.articlePath,
+      `${JSON.stringify(article, null, 2)}\n`,
+      "utf8",
+    );
+    await assert.rejects(
+      commitReservation({
+        slug,
+        reservationId: prepared.reservationId,
+        config,
+      }),
+      (error) =>
+        error instanceof WorkspaceError &&
+        error.code === "STAGING_BUNDLE_INVALID",
+    );
+  }
+
+  await releaseReservation({
+    slug,
+    reservationId: prepared.reservationId,
+    config,
+  });
+});
+
+test("fixed bundle cover does not consume the ten-image JSON limit when cover uses assetRef", async () => {
+  const config = await makeWorkspace();
+  const slug = "remote-cover-limit";
+  const prepared = await preparePublish({ baseSlug: slug, config });
+  const bodyImages = Array.from(
+    { length: 10 },
+    (_, index) => `${slug}-body-${index}.png`,
+  );
+  const article = articleWithLocalImages(slug, {
+    bodyEn: bodyImages,
+    bodyZh: [],
+  });
+  article.coverImage.source = {
+    assetRef: "image-existing-1200x630-webp",
+  };
+  await writeArticleAndAssets(prepared, slug, article, {
+    assets: Object.fromEntries(
+      bodyImages.map((filename, index) => [
+        filename,
+        Buffer.concat([PNG_1X1, Buffer.from(String(index))]),
+      ]),
+    ),
+  });
+
+  const committed = await commitReservation({
+    slug,
+    reservationId: prepared.reservationId,
+    config,
+  });
+
+  assert.equal(JSON.parse(await readFile(committed.articlePath, "utf8")).slug, slug);
+  for (const filename of bodyImages) {
+    assert.equal((await stat(assetPath(committed, filename))).isFile(), true);
+  }
+  assert.equal((await stat(committed.coverPath)).isFile(), true);
+});
+
+test("commit rejects referenced local images that are not ordinary files", async () => {
+  const config = await makeWorkspace();
+  const slug = "ordinary-assets";
+  const prepared = await preparePublish({ baseSlug: slug, config });
+  const diagram = `${slug}-diagram.png`;
+  await writeArticleAndAssets(
+    prepared,
+    slug,
+    articleWithLocalImages(slug, { bodyEn: [diagram] }),
+  );
+  await mkdir(assetPath(prepared, diagram));
+
+  await assert.rejects(
+    commitReservation({
+      slug,
+      reservationId: prepared.reservationId,
+      config,
+    }),
+    (error) =>
+      error instanceof WorkspaceError && error.code === "UNSAFE_WORKSPACE_ENTRY",
+  );
+
+  await releaseReservation({
+    slug,
+    reservationId: prepared.reservationId,
+    config,
+  });
+});
+
+test("commit rejects body and Open Graph images whose bytes disguise their extension", async () => {
+  const config = await makeWorkspace();
+  const slug = "disguised-images";
+  const prepared = await preparePublish({ baseSlug: slug, config });
+  const bodyImage = `${slug}-body.png`;
+  const socialImage = `${slug}-social.jpg`;
+  const article = articleWithLocalImages(slug, {
+    bodyEn: [bodyImage],
+    openGraphImage: socialImage,
+  });
+  await writeArticleAndAssets(prepared, slug, article, {
+    assets: {
+      [bodyImage]: Buffer.from("not a PNG"),
+      [socialImage]: PNG_1X1,
+    },
+  });
+
+  await assert.rejects(
+    commitReservation({
+      slug,
+      reservationId: prepared.reservationId,
+      config,
+    }),
+    (error) =>
+      error instanceof WorkspaceError &&
+      error.code === "STAGING_BUNDLE_INVALID" &&
+      /bytes do not match the extension/u.test(error.message),
+  );
+
+  await writeFile(assetPath(prepared, bodyImage), PNG_1X1);
+  await assert.rejects(
+    commitReservation({
+      slug,
+      reservationId: prepared.reservationId,
+      config,
+    }),
+    (error) =>
+      error instanceof WorkspaceError &&
+      error.code === "STAGING_BUNDLE_INVALID" &&
+      /bytes do not match the extension/u.test(error.message),
+  );
+
+  await releaseReservation({
+    slug,
+    reservationId: prepared.reservationId,
+    config,
+  });
+});
+
+test("commit rejects a referenced local image symbolic link", async (t) => {
+  const config = await makeWorkspace();
+  const slug = "linked-image";
+  const prepared = await preparePublish({ baseSlug: slug, config });
+  const diagram = `${slug}-diagram.png`;
+  await writeArticleAndAssets(
+    prepared,
+    slug,
+    articleWithLocalImages(slug, { bodyEn: [diagram] }),
+  );
+  const target = path.join(config.workspaceRoot, "linked-image-target.png");
+  await writeFile(target, PNG_1X1);
+  try {
+    await symlink(target, assetPath(prepared, diagram), "file");
+  } catch (error) {
+    await releaseReservation({
+      slug,
+      reservationId: prepared.reservationId,
+      config,
+    });
+    if (["EACCES", "EPERM"].includes(error?.code)) {
+      t.skip("File symbolic links are unavailable on this platform.");
+      return;
+    }
+    throw error;
+  }
+
+  await assert.rejects(
+    commitReservation({
+      slug,
+      reservationId: prepared.reservationId,
+      config,
+    }),
+    (error) =>
+      error instanceof WorkspaceError && error.code === "UNSAFE_WORKSPACE_ENTRY",
+  );
+
+  await releaseReservation({
+    slug,
+    reservationId: prepared.reservationId,
+    config,
+  });
+});
+
 test("baseline changes block commit and preserve both live and staged bundles", async () => {
   const config = await makeWorkspace();
   const paths = livePaths(config, "changed-post");
@@ -452,6 +806,173 @@ test("commit atomically promotes a complete create staging bundle", async () => 
   assert.deepEqual(await readBundle(committed), await readBundle(livePaths(config, "created-post")));
   assert.match((await readBundle(committed)).markdown, /created/);
   await assert.rejects(readFile(prepared.articlePath), { code: "ENOENT" });
+});
+
+test("update atomically adds, replaces, and removes referenced images without touching unrelated assets", async () => {
+  const config = await makeWorkspace();
+  const slug = "asset-update";
+  const paths = livePaths(config, slug);
+  const kept = `${slug}-kept.png`;
+  const removed = `${slug}-removed.png`;
+  const added = `${slug}-added.png`;
+  const oldArticle = articleWithLocalImages(slug, {
+    bodyEn: [kept, removed],
+    bodyZh: [kept],
+  });
+  await writeArticleAndAssets(paths, slug, oldArticle, {
+    assets: {
+      [kept]: Buffer.concat([PNG_1X1, Buffer.from("old kept")]),
+      [removed]: Buffer.concat([PNG_1X1, Buffer.from("remove me")]),
+    },
+  });
+  const unrelated = assetPath(paths, "other-post-private.png");
+  await writeFile(unrelated, Buffer.from("leave me alone"));
+
+  const prepared = await prepareUpdate({ slug, config });
+  const nextArticle = articleWithLocalImages(slug, {
+    bodyEn: [kept, added],
+    bodyZh: [kept, added],
+    openGraphImage: added,
+  });
+  await writeFile(
+    prepared.articlePath,
+    `${JSON.stringify(nextArticle, null, 2)}\n`,
+    "utf8",
+  );
+  const nextKept = Buffer.concat([PNG_1X1, Buffer.from("new kept")]);
+  const nextAdded = Buffer.concat([PNG_1X1, Buffer.from("new added")]);
+  await writeFile(assetPath(prepared, kept), nextKept);
+  await writeFile(assetPath(prepared, added), nextAdded);
+
+  const committed = await commitReservation({
+    slug,
+    reservationId: prepared.reservationId,
+    config,
+  });
+
+  assert.deepEqual(await readFile(assetPath(committed, kept)), nextKept);
+  assert.deepEqual(await readFile(assetPath(committed, added)), nextAdded);
+  await assert.rejects(readFile(assetPath(committed, removed)), { code: "ENOENT" });
+  assert.equal(await readFile(unrelated, "utf8"), "leave me alone");
+  assert.deepEqual(JSON.parse(await readFile(committed.articlePath, "utf8")), nextArticle);
+});
+
+test("a new referenced image cannot overwrite an untracked live file", async () => {
+  const config = await makeWorkspace();
+  const slug = "asset-collision";
+  const paths = livePaths(config, slug);
+  await writeBundle(paths, slug, "original");
+  const colliding = `${slug}-diagram.png`;
+  const collisionPath = assetPath(paths, colliding);
+  await writeFile(collisionPath, Buffer.from("untracked owner"));
+  const prepared = await prepareUpdate({ slug, config });
+  const article = articleWithLocalImages(slug, { bodyEn: [colliding] });
+  await writeFile(
+    prepared.articlePath,
+    `${JSON.stringify(article, null, 2)}\n`,
+    "utf8",
+  );
+  await writeFile(assetPath(prepared, colliding), PNG_1X1);
+
+  await assert.rejects(
+    commitReservation({
+      slug,
+      reservationId: prepared.reservationId,
+      config,
+    }),
+    (error) => error instanceof WorkspaceError && error.code === "BASELINE_CHANGED",
+  );
+  assert.equal(await readFile(collisionPath, "utf8"), "untracked owner");
+
+  await releaseReservation({
+    slug,
+    reservationId: prepared.reservationId,
+    config,
+  });
+});
+
+test("overlapping slug prefixes cannot claim an image referenced by another article", async () => {
+  const config = await makeWorkspace();
+  const currentSlug = "post";
+  const otherSlug = "post-two";
+  const currentPaths = livePaths(config, currentSlug);
+  const otherPaths = livePaths(config, otherSlug);
+  const otherDiagram = `${otherSlug}-diagram.png`;
+  await writeBundle(currentPaths, currentSlug, "current");
+  await writeArticleAndAssets(
+    otherPaths,
+    otherSlug,
+    articleWithLocalImages(otherSlug, { bodyEn: [otherDiagram] }),
+    { assets: { [otherDiagram]: PNG_1X1 } },
+  );
+  const originalOtherDiagram = await readFile(assetPath(otherPaths, otherDiagram));
+
+  const prepared = await prepareUpdate({ slug: currentSlug, config });
+  const stealingArticle = articleWithLocalImages(currentSlug, {
+    bodyEn: [otherDiagram],
+  });
+  await writeFile(
+    prepared.articlePath,
+    `${JSON.stringify(stealingArticle, null, 2)}\n`,
+    "utf8",
+  );
+  await writeFile(
+    assetPath(prepared, otherDiagram),
+    Buffer.concat([PNG_1X1, Buffer.from("replacement")]),
+  );
+
+  await assert.rejects(
+    commitReservation({
+      slug: currentSlug,
+      reservationId: prepared.reservationId,
+      config,
+    }),
+    (error) =>
+      error instanceof WorkspaceError &&
+      error.code === "ASSET_OWNERSHIP_CONFLICT",
+  );
+  assert.deepEqual(
+    await readFile(assetPath(otherPaths, otherDiagram)),
+    originalOtherDiagram,
+  );
+
+  await releaseReservation({
+    slug: currentSlug,
+    reservationId: prepared.reservationId,
+    config,
+  });
+});
+
+test("shared asset commits refuse to run while another asset transaction holds the lock", async () => {
+  const config = await makeWorkspace();
+  const slug = "asset-lock";
+  const prepared = await preparePublish({ baseSlug: slug, config });
+  await writeBundle(prepared, slug);
+  const transactionLock = path.join(
+    config.workspaceRoot,
+    "blog",
+    ".reservations",
+    ".asset-transaction",
+  );
+  await mkdir(transactionLock);
+
+  await assert.rejects(
+    commitReservation({
+      slug,
+      reservationId: prepared.reservationId,
+      config,
+    }),
+    (error) =>
+      error instanceof WorkspaceError &&
+      error.code === "ASSET_TRANSACTION_CONFLICT",
+  );
+
+  await rm(transactionLock, { recursive: true });
+  await releaseReservation({
+    slug,
+    reservationId: prepared.reservationId,
+    config,
+  });
 });
 
 test("commit cleanup failure reports a trustworthy committed receipt", async () => {
@@ -528,6 +1049,140 @@ test("a mid-commit failure rolls back live files and keeps staging retryable", a
 
   await releaseReservation({
     slug: "rollback-post",
+    reservationId: prepared.reservationId,
+    config,
+  });
+});
+
+test("a failed asset-set update restores removed images and keeps new images staged", async () => {
+  const config = await makeWorkspace();
+  const slug = "asset-rollback";
+  const paths = livePaths(config, slug);
+  const kept = `${slug}-kept.png`;
+  const removed = `${slug}-removed.png`;
+  const added = `${slug}-added.png`;
+  const originalKept = Buffer.concat([PNG_1X1, Buffer.from("original kept")]);
+  const originalRemoved = Buffer.concat([PNG_1X1, Buffer.from("original removed")]);
+  const oldArticle = articleWithLocalImages(slug, {
+    bodyEn: [kept, removed],
+  });
+  await writeArticleAndAssets(paths, slug, oldArticle, {
+    marker: "original",
+    assets: {
+      [kept]: originalKept,
+      [removed]: originalRemoved,
+    },
+  });
+  const original = await readBundle(paths);
+  const prepared = await prepareUpdate({ slug, config });
+  const nextArticle = articleWithLocalImages(slug, {
+    bodyEn: [kept, added],
+    marker: "replacement",
+  });
+  await writeFile(prepared.markdownPath, "# replacement\n", "utf8");
+  await writeFile(
+    prepared.articlePath,
+    `${JSON.stringify(nextArticle, null, 2)}\n`,
+    "utf8",
+  );
+  const nextKept = Buffer.concat([PNG_1X1, Buffer.from("next kept")]);
+  const nextAdded = Buffer.concat([PNG_1X1, Buffer.from("next added")]);
+  await writeFile(assetPath(prepared, kept), nextKept);
+  await writeFile(assetPath(prepared, added), nextAdded);
+
+  const fileOps = {
+    async rename(from, to) {
+      if (from === assetPath(prepared, added) && to === assetPath(paths, added)) {
+        const error = new Error("injected asset move failure");
+        error.code = "EIO";
+        throw error;
+      }
+      return rename(from, to);
+    },
+  };
+
+  await assert.rejects(
+    commitReservation({
+      slug,
+      reservationId: prepared.reservationId,
+      config,
+      fileOps,
+    }),
+    (error) => error instanceof WorkspaceError && error.code === "COMMIT_FAILED",
+  );
+
+  assert.deepEqual(await readBundle(paths), original);
+  assert.deepEqual(await readFile(assetPath(paths, kept)), originalKept);
+  assert.deepEqual(await readFile(assetPath(paths, removed)), originalRemoved);
+  await assert.rejects(readFile(assetPath(paths, added)), { code: "ENOENT" });
+  assert.equal(await readFile(prepared.markdownPath, "utf8"), "# replacement\n");
+  assert.deepEqual(await readFile(assetPath(prepared, kept)), nextKept);
+  assert.deepEqual(await readFile(assetPath(prepared, added)), nextAdded);
+
+  await releaseReservation({
+    slug,
+    reservationId: prepared.reservationId,
+    config,
+  });
+});
+
+test("post-move digest verification rolls back a staged image swapped after validation", async () => {
+  const config = await makeWorkspace();
+  const slug = "swap-rollback";
+  const paths = livePaths(config, slug);
+  const diagram = `${slug}-diagram.png`;
+  const originalDiagram = Buffer.concat([PNG_1X1, Buffer.from("original")]);
+  const article = articleWithLocalImages(slug, { bodyEn: [diagram] });
+  await writeArticleAndAssets(paths, slug, article, {
+    marker: "original",
+    assets: { [diagram]: originalDiagram },
+  });
+  const originalBundle = await readBundle(paths);
+  const prepared = await prepareUpdate({ slug, config });
+  await writeFile(prepared.markdownPath, "# replacement\n", "utf8");
+  await writeFile(
+    prepared.articlePath,
+    `${JSON.stringify(articleWithLocalImages(slug, {
+      bodyEn: [diagram],
+      marker: "replacement",
+    }), null, 2)}\n`,
+    "utf8",
+  );
+  const validatedDiagram = Buffer.concat([PNG_1X1, Buffer.from("validated")]);
+  const swappedDiagram = Buffer.concat([PNG_1X1, Buffer.from("swapped")]);
+  await writeFile(assetPath(prepared, diagram), validatedDiagram);
+
+  let injected = false;
+  const fileOps = {
+    async rename(from, to) {
+      if (
+        !injected &&
+        from === assetPath(prepared, diagram) &&
+        to === assetPath(paths, diagram)
+      ) {
+        injected = true;
+        await writeFile(from, swappedDiagram);
+      }
+      return rename(from, to);
+    },
+  };
+
+  await assert.rejects(
+    commitReservation({
+      slug,
+      reservationId: prepared.reservationId,
+      config,
+      fileOps,
+    }),
+    (error) => error instanceof WorkspaceError && error.code === "COMMIT_FAILED",
+  );
+
+  assert.deepEqual(await readBundle(paths), originalBundle);
+  assert.deepEqual(await readFile(assetPath(paths, diagram)), originalDiagram);
+  assert.deepEqual(await readFile(assetPath(prepared, diagram)), swappedDiagram);
+
+  await releaseReservation({
+    slug,
     reservationId: prepared.reservationId,
     config,
   });

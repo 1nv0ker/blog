@@ -4,17 +4,20 @@ import path from 'node:path'
 
 import {z} from 'zod'
 
+import {DEFAULT_PUBLIC_SITE_ORIGIN} from './constants.mjs'
+
 export const MAX_ARTICLE_BYTES = 2 * 1024 * 1024
 export const MAX_ASSET_BYTES = 20 * 1024 * 1024
 export const MAX_ASSETS = 10
-export const MAX_TOTAL_BYTES = 64 * 1024 * 1024
+export const MAX_TOTAL_BYTES = 256 * 1024 * 1024
 export const MAX_RESPONSE_BYTES = 1024 * 1024
 export const REQUEST_TIMEOUT_MS = 180_000
 
-const MULTIPART_OVERHEAD_BUDGET = 64 * 1024
 const SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/u
 const SAFE_ASSET_PATH = /^\.\/assets\/[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u
 const SAFE_ASSET_REF = /^image-[A-Za-z0-9]+-[0-9]+x[0-9]+-[A-Za-z0-9]+$/u
+const SAFE_SUPPORTED_IMAGE_ASSET_REF =
+  /^image-[A-Za-z0-9]+-[0-9]+x[0-9]+-(?:jpg|jpeg|png|gif|webp|avif)$/iu
 const SAFE_KEY = /^[A-Za-z0-9_-]+$/u
 const BUILTIN_MARKS = new Set(['strong', 'em', 'code'])
 
@@ -57,6 +60,20 @@ const localizedString = (maxLength) =>
     })
     .strict()
 
+function trimmedNonBlank(maxLength) {
+  let schema = z.string().trim().min(1, 'must not be blank')
+  if (maxLength !== undefined) schema = schema.max(maxLength)
+  return schema
+}
+
+const localizedTrimmedString = (maxLength) =>
+  z
+    .object({
+      en: trimmedNonBlank(maxLength),
+      zh: trimmedNonBlank(maxLength),
+    })
+    .strict()
+
 const portableTextKey = z.string().min(1).max(128).regex(SAFE_KEY)
 
 function safeLinkHref(value) {
@@ -70,14 +87,15 @@ function safeLinkHref(value) {
   }
 }
 
-const coverImageSource = z.union([
+const legacyImageSource = z.union([
   z.object({path: z.string().regex(SAFE_ASSET_PATH)}).strict(),
   z.object({assetRef: z.string().regex(SAFE_ASSET_REF)}).strict(),
 ])
 
-const portableTextImageSource = z
-  .object({assetRef: z.string().regex(SAFE_ASSET_REF)})
-  .strict()
+const supportedImageSource = z.union([
+  z.object({path: z.string().regex(SAFE_ASSET_PATH)}).strict(),
+  z.object({assetRef: z.string().regex(SAFE_SUPPORTED_IMAGE_ASSET_REF)}).strict(),
+])
 
 const imageCrop = z
   .object({
@@ -161,7 +179,7 @@ const portableTextImage = z
   .object({
     _type: z.literal('image'),
     _key: portableTextKey.optional(),
-    source: portableTextImageSource,
+    source: legacyImageSource,
     alt: nonBlank(500),
     crop: imageCrop.optional(),
     hotspot: imageHotspot.optional(),
@@ -186,7 +204,7 @@ const portableTextItem = z.union([
 
 const coverImage = z
   .object({
-    source: coverImageSource,
+    source: legacyImageSource,
     alt: localizedString(500),
     crop: imageCrop.optional(),
     hotspot: imageHotspot.optional(),
@@ -198,6 +216,90 @@ const author = z.union([
   z.object({id: nonBlank(256)}).strict(),
   z.object({slug: z.string().min(1).max(96).regex(SLUG_PATTERN)}).strict(),
 ])
+
+const localizedKeywords = z
+  .object({
+    en: z
+      .array(trimmedNonBlank(100))
+      .min(1)
+      .max(50)
+      .refine((values) => new Set(values).size === values.length, 'SEO keywords must be unique'),
+    zh: z
+      .array(trimmedNonBlank(100))
+      .min(1)
+      .max(50)
+      .refine((values) => new Set(values).size === values.length, 'SEO keywords must be unique'),
+  })
+  .strict()
+
+const canonicalUrl = trimmedNonBlank(2048).refine((value) => {
+  try {
+    const url = new URL(value)
+    return (
+      url.protocol === 'https:' &&
+      Boolean(url.hostname) &&
+      !url.username &&
+      !url.password &&
+      !url.hash
+    )
+  } catch {
+    return false
+  }
+}, 'must be an absolute HTTPS URL without credentials or a fragment')
+
+const localizedCanonicalUrl = z
+  .object({
+    en: canonicalUrl,
+    zh: canonicalUrl,
+  })
+  .strict()
+  .superRefine((value, context) => {
+    let englishUrl
+    let chineseUrl
+    try {
+      englishUrl = new URL(value.en)
+      chineseUrl = new URL(value.zh)
+    } catch {
+      return
+    }
+    if (englishUrl.href === chineseUrl.href) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['zh'],
+        message: 'English and Chinese canonical URLs must be different',
+      })
+    }
+  })
+
+const openGraphImage = z
+  .object({
+    source: supportedImageSource,
+    alt: localizedTrimmedString(),
+    crop: imageCrop.optional(),
+    hotspot: imageHotspot.optional(),
+  })
+  .strict()
+
+const openGraph = z
+  .object({
+    title: localizedTrimmedString().optional(),
+    description: localizedTrimmedString(180).optional(),
+    image: openGraphImage.optional(),
+  })
+  .strict()
+
+const robots = z
+  .object({
+    index: z.boolean().optional(),
+    follow: z.boolean().optional(),
+  })
+  .strict()
+
+const sitemap = z
+  .object({
+    include: z.boolean().optional(),
+  })
+  .strict()
 
 export const articleSchema = z
   .object({
@@ -221,6 +323,11 @@ export const articleSchema = z
       .object({
         title: localizedString(240),
         description: localizedString(180),
+        keywords: localizedKeywords.optional(),
+        canonicalUrl: localizedCanonicalUrl.optional(),
+        openGraph: openGraph.optional(),
+        robots: robots.optional(),
+        sitemap: sitemap.optional(),
       })
       .strict(),
   })
@@ -238,6 +345,63 @@ function deepFreeze(value) {
   if (!value || typeof value !== 'object' || Object.isFrozen(value)) return value
   for (const child of Object.values(value)) deepFreeze(child)
   return Object.freeze(value)
+}
+
+function publicSiteOrigin(config) {
+  const value = config.publicSiteOrigin ?? DEFAULT_PUBLIC_SITE_ORIGIN
+  if (typeof value !== 'string' || value.trim().length === 0) {
+    throw new ArticleValidationError(
+      'PUBLIC_SITE_ORIGIN_INVALID',
+      'config.publicSiteOrigin must be a non-empty HTTPS origin.',
+    )
+  }
+  let url
+  try {
+    url = new URL(value.trim())
+  } catch {
+    throw new ArticleValidationError(
+      'PUBLIC_SITE_ORIGIN_INVALID',
+      'config.publicSiteOrigin must be a valid absolute HTTPS origin.',
+    )
+  }
+  if (
+    url.protocol !== 'https:' ||
+    !url.hostname ||
+    url.username ||
+    url.password ||
+    url.pathname !== '/' ||
+    url.search ||
+    url.hash
+  ) {
+    throw new ArticleValidationError(
+      'PUBLIC_SITE_ORIGIN_INVALID',
+      'config.publicSiteOrigin must be an HTTPS origin without credentials, path, query, or fragment.',
+    )
+  }
+  return url.origin
+}
+
+function validateCanonicalOrigin(article, config) {
+  if (!article.seo.canonicalUrl) return
+  const expectedOrigin = publicSiteOrigin(config)
+  const issues = []
+  for (const locale of ['en', 'zh']) {
+    const value = article.seo.canonicalUrl[locale]
+    if (new URL(value).origin !== expectedOrigin) {
+      issues.push({
+        path: `seo.canonicalUrl.${locale}`,
+        code: 'custom',
+        message: `Canonical URL must use the configured public site origin ${expectedOrigin}.`,
+      })
+    }
+  }
+  if (issues.length > 0) {
+    throw new ArticleValidationError(
+      'ARTICLE_SCHEMA_INVALID',
+      'The article does not satisfy the built-in contract.',
+      {issues},
+    )
+  }
 }
 
 function hasImageSignature(bytes, extension) {
@@ -271,9 +435,19 @@ function collectLocalAssetPaths(article) {
       if (item._type === 'image') sources.push(item.source)
     }
   }
-  const localPaths = new Set()
+  if (article.seo.openGraph?.image) sources.push(article.seo.openGraph.image.source)
+  const localPaths = new Map()
   for (const source of sources) {
-    if ('path' in source) localPaths.add(source.path)
+    if (!('path' in source)) continue
+    const identity = source.path.toLowerCase()
+    const existing = localPaths.get(identity)
+    if (existing !== undefined && existing !== source.path) {
+      throw new ArticleValidationError(
+        'ASSET_PATH_COLLISION',
+        'Local image paths must be unique without case distinctions.',
+      )
+    }
+    localPaths.set(identity, source.path)
   }
   if (localPaths.size > MAX_ASSETS) {
     throw new ArticleValidationError(
@@ -281,7 +455,7 @@ function collectLocalAssetPaths(article) {
       `An article may reference at most ${MAX_ASSETS} local images.`,
     )
   }
-  return [...localPaths]
+  return [...localPaths.values()]
 }
 
 async function canonicalBlogRoot(config) {
@@ -352,6 +526,7 @@ async function inspectArticleFile(articlePath, config) {
       {issues},
     )
   }
+  validateCanonicalOrigin(parsed.data, config)
   if (path.basename(resolvedArticle, '.json') !== parsed.data.slug) {
     throw new ArticleValidationError(
       'ARTICLE_SLUG_MISMATCH',
@@ -380,7 +555,7 @@ async function inspectAssets(articleInfo) {
   }
 
   const assets = []
-  let total = articleInfo.articleBytes.length + MULTIPART_OVERHEAD_BUDGET
+  let total = 0
   for (const relativePath of localPaths) {
     const filename = relativePath.slice('./assets/'.length)
     const candidate = path.join(assetRoot, filename)
@@ -430,7 +605,7 @@ async function inspectAssets(articleInfo) {
     if (total > MAX_TOTAL_BYTES) {
       throw new ArticleValidationError(
         'REQUEST_SIZE_EXCEEDED',
-        `The article and local images exceed ${MAX_TOTAL_BYTES} bytes.`,
+        `The local images exceed ${MAX_TOTAL_BYTES} bytes.`,
       )
     }
     assets.push({

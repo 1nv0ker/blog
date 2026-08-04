@@ -21547,7 +21547,7 @@ function validateConfigObject(input, { homeDir = os.homedir() } = {}) {
     throw configError("INVALID_CONFIG", "dataset contains unsupported characters.");
   }
   let publisherApiOrigin = DEFAULT_PUBLISHER_API_ORIGIN;
-  let publicSiteOrigin = DEFAULT_PUBLIC_SITE_ORIGIN;
+  let publicSiteOrigin2 = DEFAULT_PUBLIC_SITE_ORIGIN;
   let apiVersion = DEFAULT_SANITY_API_VERSION;
   let workspaceRoot = getDefaultWorkspaceRoot(homeDir);
   if (usesManagedDefaults(input)) {
@@ -21580,11 +21580,11 @@ function validateConfigObject(input, { homeDir = os.homedir() } = {}) {
     workspaceRoot = hasOwn(input, "workspaceRoot") ? validateWorkspaceRoot(input.workspaceRoot) : LEGACY_DEFAULT_WORKSPACE_ROOT;
   }
   if (hasOwn(input, "publicSiteOrigin")) {
-    publicSiteOrigin = validatePublicSiteOrigin(input.publicSiteOrigin);
+    publicSiteOrigin2 = validatePublicSiteOrigin(input.publicSiteOrigin);
   }
   const config2 = {
     publisherApiOrigin,
-    publicSiteOrigin,
+    publicSiteOrigin: publicSiteOrigin2,
     projectId,
     dataset,
     apiVersion,
@@ -22117,13 +22117,13 @@ import path3 from "node:path";
 var MAX_ARTICLE_BYTES = 2 * 1024 * 1024;
 var MAX_ASSET_BYTES = 20 * 1024 * 1024;
 var MAX_ASSETS = 10;
-var MAX_TOTAL_BYTES = 64 * 1024 * 1024;
+var MAX_TOTAL_BYTES = 256 * 1024 * 1024;
 var MAX_RESPONSE_BYTES = 1024 * 1024;
 var REQUEST_TIMEOUT_MS = 18e4;
-var MULTIPART_OVERHEAD_BUDGET = 64 * 1024;
 var SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/u;
 var SAFE_ASSET_PATH = /^\.\/assets\/[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u;
 var SAFE_ASSET_REF = /^image-[A-Za-z0-9]+-[0-9]+x[0-9]+-[A-Za-z0-9]+$/u;
+var SAFE_SUPPORTED_IMAGE_ASSET_REF = /^image-[A-Za-z0-9]+-[0-9]+x[0-9]+-(?:jpg|jpeg|png|gif|webp|avif)$/iu;
 var SAFE_KEY = /^[A-Za-z0-9_-]+$/u;
 var BUILTIN_MARKS = /* @__PURE__ */ new Set(["strong", "em", "code"]);
 var MIME_TYPES = /* @__PURE__ */ new Map([
@@ -22153,6 +22153,15 @@ var localizedString = (maxLength) => external_exports.object({
   en: nonBlank(maxLength),
   zh: nonBlank(maxLength)
 }).strict();
+function trimmedNonBlank(maxLength) {
+  let schema = external_exports.string().trim().min(1, "must not be blank");
+  if (maxLength !== void 0) schema = schema.max(maxLength);
+  return schema;
+}
+var localizedTrimmedString = (maxLength) => external_exports.object({
+  en: trimmedNonBlank(maxLength),
+  zh: trimmedNonBlank(maxLength)
+}).strict();
 var portableTextKey = external_exports.string().min(1).max(128).regex(SAFE_KEY);
 function safeLinkHref(value) {
   if (value.startsWith("/") && !value.startsWith("//")) return true;
@@ -22164,11 +22173,14 @@ function safeLinkHref(value) {
     return false;
   }
 }
-var coverImageSource = external_exports.union([
+var legacyImageSource = external_exports.union([
   external_exports.object({ path: external_exports.string().regex(SAFE_ASSET_PATH) }).strict(),
   external_exports.object({ assetRef: external_exports.string().regex(SAFE_ASSET_REF) }).strict()
 ]);
-var portableTextImageSource = external_exports.object({ assetRef: external_exports.string().regex(SAFE_ASSET_REF) }).strict();
+var supportedImageSource = external_exports.union([
+  external_exports.object({ path: external_exports.string().regex(SAFE_ASSET_PATH) }).strict(),
+  external_exports.object({ assetRef: external_exports.string().regex(SAFE_SUPPORTED_IMAGE_ASSET_REF) }).strict()
+]);
 var imageCrop = external_exports.object({
   _type: external_exports.literal("sanity.imageCrop").optional(),
   top: external_exports.number().min(0).max(1),
@@ -22234,7 +22246,7 @@ var portableTextBlock = external_exports.object({
 var portableTextImage = external_exports.object({
   _type: external_exports.literal("image"),
   _key: portableTextKey.optional(),
-  source: portableTextImageSource,
+  source: legacyImageSource,
   alt: nonBlank(500),
   crop: imageCrop.optional(),
   hotspot: imageHotspot.optional()
@@ -22252,7 +22264,7 @@ var portableTextItem = external_exports.union([
   portableTextCode
 ]);
 var coverImage = external_exports.object({
-  source: coverImageSource,
+  source: legacyImageSource,
   alt: localizedString(500),
   crop: imageCrop.optional(),
   hotspot: imageHotspot.optional()
@@ -22262,6 +22274,56 @@ var author = external_exports.union([
   external_exports.object({ id: nonBlank(256) }).strict(),
   external_exports.object({ slug: external_exports.string().min(1).max(96).regex(SLUG_PATTERN) }).strict()
 ]);
+var localizedKeywords = external_exports.object({
+  en: external_exports.array(trimmedNonBlank(100)).min(1).max(50).refine((values) => new Set(values).size === values.length, "SEO keywords must be unique"),
+  zh: external_exports.array(trimmedNonBlank(100)).min(1).max(50).refine((values) => new Set(values).size === values.length, "SEO keywords must be unique")
+}).strict();
+var canonicalUrl = trimmedNonBlank(2048).refine((value) => {
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" && Boolean(url.hostname) && !url.username && !url.password && !url.hash;
+  } catch {
+    return false;
+  }
+}, "must be an absolute HTTPS URL without credentials or a fragment");
+var localizedCanonicalUrl = external_exports.object({
+  en: canonicalUrl,
+  zh: canonicalUrl
+}).strict().superRefine((value, context) => {
+  let englishUrl;
+  let chineseUrl;
+  try {
+    englishUrl = new URL(value.en);
+    chineseUrl = new URL(value.zh);
+  } catch {
+    return;
+  }
+  if (englishUrl.href === chineseUrl.href) {
+    context.addIssue({
+      code: external_exports.ZodIssueCode.custom,
+      path: ["zh"],
+      message: "English and Chinese canonical URLs must be different"
+    });
+  }
+});
+var openGraphImage = external_exports.object({
+  source: supportedImageSource,
+  alt: localizedTrimmedString(),
+  crop: imageCrop.optional(),
+  hotspot: imageHotspot.optional()
+}).strict();
+var openGraph = external_exports.object({
+  title: localizedTrimmedString().optional(),
+  description: localizedTrimmedString(180).optional(),
+  image: openGraphImage.optional()
+}).strict();
+var robots = external_exports.object({
+  index: external_exports.boolean().optional(),
+  follow: external_exports.boolean().optional()
+}).strict();
+var sitemap = external_exports.object({
+  include: external_exports.boolean().optional()
+}).strict();
 var articleSchema = external_exports.object({
   title: localizedString(240),
   slug: external_exports.string().min(1).max(96).regex(SLUG_PATTERN),
@@ -22275,7 +22337,12 @@ var articleSchema = external_exports.object({
   }).strict(),
   seo: external_exports.object({
     title: localizedString(240),
-    description: localizedString(180)
+    description: localizedString(180),
+    keywords: localizedKeywords.optional(),
+    canonicalUrl: localizedCanonicalUrl.optional(),
+    openGraph: openGraph.optional(),
+    robots: robots.optional(),
+    sitemap: sitemap.optional()
   }).strict()
 }).strict();
 function isInside(root, candidate) {
@@ -22286,6 +22353,53 @@ function deepFreeze(value) {
   if (!value || typeof value !== "object" || Object.isFrozen(value)) return value;
   for (const child of Object.values(value)) deepFreeze(child);
   return Object.freeze(value);
+}
+function publicSiteOrigin(config2) {
+  const value = config2.publicSiteOrigin ?? DEFAULT_PUBLIC_SITE_ORIGIN;
+  if (typeof value !== "string" || value.trim().length === 0) {
+    throw new ArticleValidationError(
+      "PUBLIC_SITE_ORIGIN_INVALID",
+      "config.publicSiteOrigin must be a non-empty HTTPS origin."
+    );
+  }
+  let url;
+  try {
+    url = new URL(value.trim());
+  } catch {
+    throw new ArticleValidationError(
+      "PUBLIC_SITE_ORIGIN_INVALID",
+      "config.publicSiteOrigin must be a valid absolute HTTPS origin."
+    );
+  }
+  if (url.protocol !== "https:" || !url.hostname || url.username || url.password || url.pathname !== "/" || url.search || url.hash) {
+    throw new ArticleValidationError(
+      "PUBLIC_SITE_ORIGIN_INVALID",
+      "config.publicSiteOrigin must be an HTTPS origin without credentials, path, query, or fragment."
+    );
+  }
+  return url.origin;
+}
+function validateCanonicalOrigin(article, config2) {
+  if (!article.seo.canonicalUrl) return;
+  const expectedOrigin = publicSiteOrigin(config2);
+  const issues = [];
+  for (const locale of ["en", "zh"]) {
+    const value = article.seo.canonicalUrl[locale];
+    if (new URL(value).origin !== expectedOrigin) {
+      issues.push({
+        path: `seo.canonicalUrl.${locale}`,
+        code: "custom",
+        message: `Canonical URL must use the configured public site origin ${expectedOrigin}.`
+      });
+    }
+  }
+  if (issues.length > 0) {
+    throw new ArticleValidationError(
+      "ARTICLE_SCHEMA_INVALID",
+      "The article does not satisfy the built-in contract.",
+      { issues }
+    );
+  }
 }
 function hasImageSignature(bytes, extension) {
   if (extension === ".png") {
@@ -22314,9 +22428,19 @@ function collectLocalAssetPaths(article) {
       if (item._type === "image") sources.push(item.source);
     }
   }
-  const localPaths = /* @__PURE__ */ new Set();
+  if (article.seo.openGraph?.image) sources.push(article.seo.openGraph.image.source);
+  const localPaths = /* @__PURE__ */ new Map();
   for (const source of sources) {
-    if ("path" in source) localPaths.add(source.path);
+    if (!("path" in source)) continue;
+    const identity = source.path.toLowerCase();
+    const existing = localPaths.get(identity);
+    if (existing !== void 0 && existing !== source.path) {
+      throw new ArticleValidationError(
+        "ASSET_PATH_COLLISION",
+        "Local image paths must be unique without case distinctions."
+      );
+    }
+    localPaths.set(identity, source.path);
   }
   if (localPaths.size > MAX_ASSETS) {
     throw new ArticleValidationError(
@@ -22324,7 +22448,7 @@ function collectLocalAssetPaths(article) {
       `An article may reference at most ${MAX_ASSETS} local images.`
     );
   }
-  return [...localPaths];
+  return [...localPaths.values()];
 }
 async function canonicalBlogRoot(config2) {
   const requested = path3.resolve(config2.workspaceRoot, "blog");
@@ -22393,6 +22517,7 @@ async function inspectArticleFile(articlePath3, config2) {
       { issues }
     );
   }
+  validateCanonicalOrigin(parsed.data, config2);
   if (path3.basename(resolvedArticle, ".json") !== parsed.data.slug) {
     throw new ArticleValidationError(
       "ARTICLE_SLUG_MISMATCH",
@@ -22418,7 +22543,7 @@ async function inspectAssets(articleInfo) {
     );
   }
   const assets = [];
-  let total = articleInfo.articleBytes.length + MULTIPART_OVERHEAD_BUDGET;
+  let total = 0;
   for (const relativePath of localPaths) {
     const filename = relativePath.slice("./assets/".length);
     const candidate = path3.join(assetRoot, filename);
@@ -22468,7 +22593,7 @@ async function inspectAssets(articleInfo) {
     if (total > MAX_TOTAL_BYTES) {
       throw new ArticleValidationError(
         "REQUEST_SIZE_EXCEEDED",
-        `The article and local images exceed ${MAX_TOTAL_BYTES} bytes.`
+        `The local images exceed ${MAX_TOTAL_BYTES} bytes.`
       );
     }
     assets.push({
@@ -23117,8 +23242,17 @@ import {
 import path5 from "node:path";
 import { pathToFileURL } from "node:url";
 var MAX_MARKDOWN_BYTES = 2 * 1024 * 1024;
-var MAX_PREVIEW_BYTES = 32 * 1024 * 1024;
+var MAX_PREVIEW_BYTES = 384 * 1024 * 1024;
 var FILE_MODE = 384;
+var SHA256_PATTERN = /^[0-9a-f]{64}$/u;
+var SAFE_ASSET_PATH2 = /^\.\/assets\/[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u;
+var SAFE_IMAGE_MIME_TYPES = /* @__PURE__ */ new Set([
+  "image/avif",
+  "image/gif",
+  "image/jpeg",
+  "image/png",
+  "image/webp"
+]);
 var PreviewError = class extends Error {
   constructor(code, message) {
     super(message);
@@ -23133,7 +23267,7 @@ function fail(code, message) {
   throw new PreviewError(code, message);
 }
 function escapeHtml(value) {
-  return String(value).replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#39;");
+  return String(value ?? "").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#39;");
 }
 function sameFileSnapshot(left, right) {
   return left.dev === right.dev && left.ino === right.ino && left.size === right.size && left.mtimeNs === right.mtimeNs && left.ctimeNs === right.ctimeNs;
@@ -23199,9 +23333,13 @@ function safeLinkHref2(value) {
     return false;
   }
 }
-function renderMarkdownInline(source, depth = 0) {
+function renderMarkdownInline(source, localAssets, depth = 0) {
   if (depth > 12 || source.length === 0) return escapeHtml(source);
   const patterns = [
+    {
+      kind: "image",
+      expression: /!\[([^\]\n]*)\]\(([^)\s]+)(?:\s+(?:"[^"\n]*"|'[^'\n]*'))?\)/u
+    },
     { kind: "code", expression: /`([^`\n]+)`/u },
     { kind: "link", expression: /\[([^\]\n]+)\]\(([^)\s]+)\)/u },
     { kind: "strong", expression: /\*\*([^*\n]+)\*\*/u },
@@ -23221,20 +23359,24 @@ function renderMarkdownInline(source, depth = 0) {
   const before = source.slice(0, selected.match.index);
   const after = source.slice(selected.match.index + selected.match[0].length);
   let rendered;
-  if (selected.kind === "code") {
+  if (selected.kind === "image") {
+    const alt = selected.match[1];
+    const asset = localAssets.byPath.get(selected.match[2]);
+    rendered = asset ? renderEmbeddedImage(asset, alt, "markdown-image") : `<span class="unsafe-image" role="img" aria-label="${escapeHtml(alt || "Image omitted")}">Image omitted: ${escapeHtml(alt || "unvalidated source")}</span>`;
+  } else if (selected.kind === "code") {
     rendered = `<code>${escapeHtml(selected.match[1])}</code>`;
   } else if (selected.kind === "link") {
-    const label = renderMarkdownInline(selected.match[1], depth + 1);
+    const label = renderMarkdownInline(selected.match[1], localAssets, depth + 1);
     const href = selected.match[2];
     rendered = safeLinkHref2(href) ? `<a href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer">${label}</a>` : `<span class="unsafe-link" title="Unsupported link omitted">${label}</span>`;
   } else if (selected.kind === "strong") {
-    rendered = `<strong>${renderMarkdownInline(selected.match[1], depth + 1)}</strong>`;
+    rendered = `<strong>${renderMarkdownInline(selected.match[1], localAssets, depth + 1)}</strong>`;
   } else {
-    rendered = `<em>${renderMarkdownInline(selected.match[1], depth + 1)}</em>`;
+    rendered = `<em>${renderMarkdownInline(selected.match[1], localAssets, depth + 1)}</em>`;
   }
-  return `${escapeHtml(before)}${rendered}${renderMarkdownInline(after, depth + 1)}`;
+  return `${escapeHtml(before)}${rendered}${renderMarkdownInline(after, localAssets, depth + 1)}`;
 }
-function renderMarkdown(source) {
+function renderMarkdown(source, localAssets) {
   const lines = source.replaceAll("\r\n", "\n").replaceAll("\r", "\n").split("\n");
   const output = [];
   let paragraph = [];
@@ -23242,7 +23384,7 @@ function renderMarkdown(source) {
   let quote = [];
   function flushParagraph() {
     if (paragraph.length > 0) {
-      output.push(`<p>${renderMarkdownInline(paragraph.join(" "))}</p>`);
+      output.push(`<p>${renderMarkdownInline(paragraph.join(" "), localAssets)}</p>`);
       paragraph = [];
     }
   }
@@ -23253,7 +23395,7 @@ function renderMarkdown(source) {
   }
   function flushQuote() {
     if (quote.length > 0) {
-      output.push(`<blockquote>${renderMarkdownInline(quote.join(" "))}</blockquote>`);
+      output.push(`<blockquote>${renderMarkdownInline(quote.join(" "), localAssets)}</blockquote>`);
       quote = [];
     }
   }
@@ -23288,7 +23430,7 @@ function renderMarkdown(source) {
     if (heading) {
       flushFlow();
       const level = Math.max(2, heading[1].length);
-      output.push(`<h${level}>${renderMarkdownInline(heading[2])}</h${level}>`);
+      output.push(`<h${level}>${renderMarkdownInline(heading[2], localAssets)}</h${level}>`);
       index += 1;
       continue;
     }
@@ -23308,7 +23450,7 @@ function renderMarkdown(source) {
       if (list && list.tag !== tag) flushList();
       list ??= { tag, items: [] };
       const level = Math.min(10, Math.floor(listItem[1].replaceAll("	", "  ").length / 2) + 1);
-      list.items.push(`<li class="list-level-${level}">${renderMarkdownInline(listItem[4])}</li>`);
+      list.items.push(`<li class="list-level-${level}">${renderMarkdownInline(listItem[4], localAssets)}</li>`);
       index += 1;
       continue;
     }
@@ -23320,9 +23462,78 @@ function renderMarkdown(source) {
   flushFlow();
   return output.join("\n");
 }
-function localAssetUrl(source, localAssets) {
+function localAsset(source, localAssets) {
   if (!source || typeof source !== "object" || !("path" in source)) return void 0;
-  return localAssets.get(source.path);
+  return localAssets.byPath.get(source.path);
+}
+function renderEmbeddedImage(asset, alt, className) {
+  return `<img class="${className}" data-preview-asset="${asset.id}" alt="${escapeHtml(alt)}" decoding="async">`;
+}
+function materializePreviewAssetMap(snapshot) {
+  let assets;
+  try {
+    assets = materializeArticlePreviewAssets(snapshot);
+  } catch {
+    fail(
+      "PREVIEW_ASSETS_INVALID",
+      "The validated article assets could not be materialized."
+    );
+  }
+  if (!Array.isArray(assets)) {
+    fail("PREVIEW_ASSETS_INVALID", "The validated article assets are unavailable.");
+  }
+  const byPath = /* @__PURE__ */ new Map();
+  const byDigest = /* @__PURE__ */ new Map();
+  for (const asset of assets) {
+    if (!asset || typeof asset !== "object" || typeof asset.sourcePath !== "string" || !SAFE_ASSET_PATH2.test(asset.sourcePath) || typeof asset.mimeType !== "string" || !SAFE_IMAGE_MIME_TYPES.has(asset.mimeType) || !Buffer.isBuffer(asset.bytes) || !SHA256_PATTERN.test(asset.sha256) || byPath.has(asset.sourcePath)) {
+      fail(
+        "PREVIEW_ASSETS_INVALID",
+        "A validated article image has invalid preview metadata."
+      );
+    }
+    const sha256 = createHash2("sha256").update(asset.bytes).digest("hex");
+    if (sha256 !== asset.sha256) {
+      fail(
+        "PREVIEW_ASSETS_INVALID",
+        "A validated article image changed before preview rendering."
+      );
+    }
+    let definition = byDigest.get(asset.sha256);
+    if (definition && definition.mimeType !== asset.mimeType) {
+      fail(
+        "PREVIEW_ASSETS_INVALID",
+        "Equivalent validated article image bytes have conflicting MIME types."
+      );
+    }
+    definition ??= Object.freeze({
+      id: `preview-asset-${asset.sha256}`,
+      mimeType: asset.mimeType,
+      base64: asset.bytes.toString("base64")
+    });
+    byDigest.set(asset.sha256, definition);
+    byPath.set(asset.sourcePath, definition);
+  }
+  return Object.freeze({
+    byPath,
+    definitions: Object.freeze(
+      [...byDigest.values()].sort((left, right) => left.id.localeCompare(right.id))
+    )
+  });
+}
+function localized(value, locale, fallback = "") {
+  if (typeof value === "string") return value;
+  if (!value || typeof value !== "object") return fallback;
+  if (typeof value[locale] === "string") return value[locale];
+  if (typeof value.en === "string") return value.en;
+  if (typeof value.zh === "string") return value.zh;
+  return fallback;
+}
+function localizedKeywords2(value, locale) {
+  if (Array.isArray(value)) {
+    return value.filter((keyword) => typeof keyword === "string");
+  }
+  if (!value || typeof value !== "object") return [];
+  return Array.isArray(value[locale]) ? value[locale].filter((keyword) => typeof keyword === "string") : [];
 }
 function localAssetPath(articlePath3, source) {
   if (!source || typeof source !== "object" || !("path" in source)) return void 0;
@@ -23353,8 +23564,8 @@ function renderSpans(block) {
   }).join("");
 }
 function renderImage(item, localAssets) {
-  const sourceUrl = localAssetUrl(item.source, localAssets);
-  if (!sourceUrl) {
+  const asset = localAsset(item.source, localAssets);
+  if (!asset) {
     return `<figure class="asset-placeholder" role="img" aria-label="${escapeHtml(item.alt)}">
       <div class="asset-placeholder__icon">\u25C7</div>
       <strong>Remote Sanity image</strong>
@@ -23362,7 +23573,7 @@ function renderImage(item, localAssets) {
     </figure>`;
   }
   return `<figure class="body-image">
-    <img src="${sourceUrl}" alt="${escapeHtml(item.alt)}">
+    ${renderEmbeddedImage(asset, item.alt, "body-image__visual")}
     <figcaption>${escapeHtml(item.alt)}</figcaption>
   </figure>`;
 }
@@ -23408,15 +23619,76 @@ function renderPortableText(items, localAssets) {
   return output.join("\n");
 }
 function renderCover(article, localAssets) {
-  const sourceUrl = localAssetUrl(article.coverImage.source, localAssets);
+  const asset = localAsset(article.coverImage.source, localAssets);
   const alt = `${article.coverImage.alt.en} / ${article.coverImage.alt.zh}`;
-  if (!sourceUrl) {
+  if (!asset) {
     return `<div class="cover-placeholder" role="img" aria-label="${escapeHtml(alt)}">
       <span>Remote cover image</span>
       <strong>${escapeHtml(article.title.en)}</strong>
     </div>`;
   }
-  return `<img class="cover" src="${sourceUrl}" alt="${escapeHtml(alt)}">`;
+  return renderEmbeddedImage(asset, alt, "cover");
+}
+function renderSeoImage(openGraph2, locale, localAssets) {
+  if (!openGraph2?.image) return "";
+  const alt = localized(openGraph2.image.alt, locale, "Open Graph image");
+  const asset = localAsset(openGraph2.image.source, localAssets);
+  if (!asset) {
+    return `<section class="seo-og-image">
+      <h3>Open Graph image</h3>
+      <figure class="asset-placeholder seo-image" role="img" aria-label="${escapeHtml(alt)}">
+        <div class="asset-placeholder__icon" aria-hidden="true">\u25C7</div>
+        <strong>Remote Sanity Open Graph image</strong>
+        <span>${escapeHtml(alt)}</span>
+      </figure>
+    </section>`;
+  }
+  return `<section class="seo-og-image">
+    <h3>Open Graph image</h3>
+    <figure class="seo-image">
+      ${renderEmbeddedImage(asset, alt, "seo-image__visual")}
+      <figcaption>${escapeHtml(alt)}</figcaption>
+    </figure>
+  </section>`;
+}
+function renderRobots(robots2) {
+  if (!robots2) return "Not specified (publisher defaults: index, follow)";
+  const index = robots2.index === void 0 ? "index (publisher default)" : robots2.index ? "index" : "noindex";
+  const follow = robots2.follow === void 0 ? "follow (publisher default)" : robots2.follow ? "follow" : "nofollow";
+  return `${index}, ${follow}`;
+}
+function renderSitemap(sitemap2) {
+  if (!sitemap2) return "Not specified (publisher default: included)";
+  if (sitemap2.include === void 0) return "Included (publisher default)";
+  return sitemap2.include ? "Included" : "Excluded";
+}
+function renderSeo(article, locale, localAssets) {
+  const seo = article.seo;
+  const title = localized(seo.title, locale);
+  const description = localized(seo.description, locale);
+  const keywords = localizedKeywords2(seo.keywords, locale);
+  const canonical = localized(seo.canonicalUrl, locale);
+  const openGraph2 = seo.openGraph;
+  const openGraphTitle = localized(openGraph2?.title, locale);
+  const openGraphDescription = localized(openGraph2?.description, locale);
+  return `<aside class="seo-card" aria-label="Full SEO preview">
+    <span class="seo-card__label">Full SEO preview</span>
+    <section>
+      <h3>Search result</h3>
+      <strong class="search-title">${escapeHtml(title)}</strong>
+      <div class="canonical">${canonical ? escapeHtml(canonical) : '<span class="derived-value">Derived by the publisher from the site origin and slug</span>'}</div>
+      <p>${escapeHtml(description)}</p>
+    </section>
+    <dl class="seo-fields">
+      <div><dt>Keywords</dt><dd>${keywords.length > 0 ? keywords.map((keyword) => escapeHtml(keyword)).join(", ") : "Not specified"}</dd></div>
+      <div><dt>Canonical URL</dt><dd>${canonical ? escapeHtml(canonical) : '<span class="derived-value">Publisher-derived</span>'}</dd></div>
+      <div><dt>Robots</dt><dd>${escapeHtml(renderRobots(seo.robots))}</dd></div>
+      <div><dt>Sitemap</dt><dd>${escapeHtml(renderSitemap(seo.sitemap))}</dd></div>
+      <div><dt>Open Graph title</dt><dd>${openGraphTitle ? escapeHtml(openGraphTitle) : "Not specified"}</dd></div>
+      <div><dt>Open Graph description</dt><dd>${openGraphDescription ? escapeHtml(openGraphDescription) : "Not specified"}</dd></div>
+    </dl>
+    ${renderSeoImage(openGraph2, locale, localAssets)}
+  </aside>`;
 }
 function renderLocale(article, locale, label, localAssets) {
   const title = article.title[locale];
@@ -23428,11 +23700,7 @@ function renderLocale(article, locale, label, localAssets) {
       <p class="excerpt">${escapeHtml(excerpt)}</p>
     </header>
     <div class="prose">${renderPortableText(article.body[locale], localAssets)}</div>
-    <aside class="seo-card" aria-label="SEO preview">
-      <span>SEO preview</span>
-      <strong>${escapeHtml(article.seo.title[locale])}</strong>
-      <p>${escapeHtml(article.seo.description[locale])}</p>
-    </aside>
+    ${renderSeo(article, locale, localAssets)}
   </article>`;
 }
 function countRemoteImages(article) {
@@ -23442,9 +23710,53 @@ function countRemoteImages(article) {
       if (item._type === "image" && "assetRef" in item.source) count += 1;
     }
   }
+  if (article.seo.openGraph?.image?.source && "assetRef" in article.seo.openGraph.image.source) {
+    count += 1;
+  }
   return count;
 }
+function renderAssetBootstrap(localAssets, scriptNonce) {
+  if (localAssets.definitions.length === 0) return "";
+  const payloads = localAssets.definitions.map(
+    (asset) => `<script class="preview-asset-payload" type="application/octet-stream" nonce="${scriptNonce}" id="${asset.id}" data-preview-mime="${escapeHtml(asset.mimeType)}">${asset.base64}</script>`
+  ).join("\n");
+  return `<div class="preview-asset-store" hidden aria-hidden="true">
+    ${payloads}
+  </div>
+  <script nonce="${scriptNonce}">
+    (() => {
+      'use strict'
+      const objectUrls = []
+      const sources = new Map()
+      for (const payload of document.querySelectorAll('script.preview-asset-payload')) {
+        const binary = atob(payload.textContent.trim())
+        const bytes = new Uint8Array(binary.length)
+        for (let index = 0; index < binary.length; index += 1) {
+          bytes[index] = binary.charCodeAt(index)
+        }
+        const objectUrl = URL.createObjectURL(
+          new Blob([bytes], {type: payload.dataset.previewMime}),
+        )
+        sources.set(payload.id, objectUrl)
+        objectUrls.push(objectUrl)
+        payload.remove()
+      }
+      for (const image of document.querySelectorAll('img[data-preview-asset]')) {
+        const objectUrl = sources.get(image.dataset.previewAsset)
+        if (objectUrl) image.src = objectUrl
+      }
+      window.addEventListener(
+        'pagehide',
+        () => {
+          for (const objectUrl of objectUrls) URL.revokeObjectURL(objectUrl)
+        },
+        {once: true},
+      )
+    })()
+  </script>`;
+}
 function renderHtml(article, markdownSource, previewRevision4, localAssets) {
+  const scriptNonce = randomUUID().replaceAll("-", "");
   const published = article.publishedAt ? `<span>Published timestamp: ${escapeHtml(article.publishedAt)}</span>` : "<span>Draft without a fixed publication timestamp</span>";
   return `<!doctype html>
 <html lang="en">
@@ -23452,7 +23764,7 @@ function renderHtml(article, markdownSource, previewRevision4, localAssets) {
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex,nofollow">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-src 'none'; object-src 'none'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data: blob:; script-src 'nonce-${scriptNonce}'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-src 'none'; object-src 'none'">
   <title>${escapeHtml(article.title.en)} \u2014 local preview</title>
   <style>
     :root { color-scheme: light dark; --bg: #f4f1ea; --paper: #fffdf8; --ink: #17201d; --muted: #66706c; --line: #d9d3c8; --accent: #0f766e; --soft: #dff4ef; }
@@ -23487,6 +23799,8 @@ function renderHtml(article, markdownSource, previewRevision4, localAssets) {
     .list-level-3 { margin-left: 2.4em; }
     .body-image { margin: 30px 0; }
     .body-image img { display: block; width: 100%; height: auto; border-radius: 14px; }
+    .markdown-image { display: block; max-width: 100%; height: auto; margin: 26px auto; border-radius: 14px; }
+    .unsafe-image { display: inline-block; padding: 8px 11px; border: 1px dashed #dc2626; border-radius: 8px; color: var(--muted); font: 13px/1.4 Inter, ui-sans-serif, system-ui, sans-serif; }
     figcaption { margin-top: 8px; color: var(--muted); font: 13px/1.5 Inter, ui-sans-serif, system-ui, sans-serif; }
     .asset-placeholder { min-height: 220px; display: grid; place-content: center; gap: 8px; padding: 26px; border: 1px dashed var(--line); border-radius: 16px; background: color-mix(in srgb, var(--soft) 38%, var(--paper)); text-align: center; font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
     .asset-placeholder__icon { color: var(--accent); font-size: 42px; }
@@ -23495,9 +23809,19 @@ function renderHtml(article, markdownSource, previewRevision4, localAssets) {
     .code-block pre { margin: 0; padding: 18px; overflow: auto; }
     .code-block code { padding: 0; background: none; color: inherit; }
     .seo-card { margin-top: 46px; padding: 18px; border: 1px solid var(--line); border-radius: 14px; background: color-mix(in srgb, var(--soft) 46%, var(--paper)); font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
-    .seo-card span { display: block; margin-bottom: 8px; color: var(--accent); font-size: 11px; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; }
+    .seo-card__label { display: block; margin-bottom: 8px; color: var(--accent); font-size: 11px; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; }
+    .seo-card h3 { margin: 18px 0 8px; font-size: 14px; }
     .seo-card strong { display: block; color: #1558d6; font-size: 18px; line-height: 1.35; }
     .seo-card p { margin: 7px 0 0; color: var(--muted); font-size: 14px; line-height: 1.5; }
+    .canonical { margin-top: 4px; overflow-wrap: anywhere; color: #15803d; font-size: 13px; }
+    .derived-value { color: var(--muted); font-style: italic; }
+    .seo-fields { display: grid; gap: 8px; margin: 18px 0 0; }
+    .seo-fields div { display: grid; grid-template-columns: minmax(120px, .55fr) minmax(0, 1fr); gap: 12px; padding-top: 8px; border-top: 1px solid var(--line); }
+    .seo-fields dt { color: var(--muted); font-size: 12px; font-weight: 700; }
+    .seo-fields dd { margin: 0; overflow-wrap: anywhere; font-size: 13px; }
+    .seo-og-image { margin-top: 18px; }
+    .seo-image { margin: 0; min-height: 0; }
+    .seo-image img { display: block; width: 100%; height: auto; border-radius: 10px; }
     .markdown-card { margin-top: 18px; padding: clamp(22px, 4vw, 44px); border: 1px solid var(--line); border-radius: 24px; background: var(--paper); box-shadow: 0 18px 44px rgba(28, 40, 35, .07); }
     .markdown-card summary { cursor: pointer; color: var(--ink); font-size: 21px; font-weight: 800; }
     .markdown-note { margin-top: 12px; padding: 12px 14px; border-radius: 12px; background: color-mix(in srgb, var(--soft) 52%, var(--paper)); color: var(--muted); font-size: 14px; }
@@ -23525,8 +23849,9 @@ function renderHtml(article, markdownSource, previewRevision4, localAssets) {
     <details class="markdown-card" open>
       <summary>Markdown visual preview</summary>
       <div class="markdown-note">This pane safely renders the sibling Markdown source. Compare it with the JSON payload preview above before publishing.</div>
-      <div class="prose markdown-prose">${renderMarkdown(markdownSource)}</div>
+      <div class="prose markdown-prose">${renderMarkdown(markdownSource, localAssets)}</div>
     </details>
+    ${renderAssetBootstrap(localAssets, scriptNonce)}
     <footer>The upper panes render the validated JSON payload; the expandable lower pane renders the sibling Markdown source. Final site typography and components may differ.</footer>
   </main>
 </body>
@@ -23551,7 +23876,7 @@ async function assertReplaceablePreview(previewPath) {
 async function writePreview(previewPath, source) {
   const bytes = Buffer.byteLength(source);
   if (bytes <= 0 || bytes > MAX_PREVIEW_BYTES) {
-    fail("PREVIEW_SIZE_INVALID", "The generated preview exceeds the 32 MiB limit.");
+    fail("PREVIEW_SIZE_INVALID", "The generated preview exceeds the 384 MiB limit.");
   }
   await assertReplaceablePreview(previewPath);
   const temporaryPath = path5.join(
@@ -23600,12 +23925,7 @@ async function renderArticlePreview(snapshot) {
     `${snapshot.slug}.preview.html`
   );
   const previewRevision4 = createHash2("sha256").update("content\0").update(snapshot.contentSha256).update("\0markdown\0").update(markdownSha256).digest("hex");
-  const localAssets = new Map(
-    materializeArticlePreviewAssets(snapshot).map((asset) => [
-      asset.sourcePath,
-      `data:${asset.mimeType};base64,${asset.bytes.toString("base64")}`
-    ])
-  );
+  const localAssets = materializePreviewAssetMap(snapshot);
   const source = renderHtml(
     snapshot.article,
     markdownSource,
@@ -23649,6 +23969,7 @@ import {
   lstat as lstat5,
   mkdir as mkdir3,
   open as open4,
+  readdir,
   readFile as readFile3,
   rename as rename4,
   rm as rm4,
@@ -23663,7 +23984,19 @@ var CONTROL_MODE = 448;
 var FILE_MODE2 = 384;
 var MAX_STAGING_TEXT_BYTES = 2 * 1024 * 1024;
 var MAX_STAGING_COVER_BYTES = 20 * 1024 * 1024;
+var MAX_STAGING_ASSETS = 10;
+var MAX_STAGING_ASSET_TOTAL_BYTES = 256 * 1024 * 1024;
 var READ_CHUNK_BYTES = 64 * 1024;
+var SAFE_LOCAL_ASSET_PATH = /^\.\/assets\/([A-Za-z0-9][A-Za-z0-9._-]{0,127})$/u;
+var ASSET_TRANSACTION_LOCK = ".asset-transaction";
+var SUPPORTED_IMAGE_EXTENSIONS = /* @__PURE__ */ new Set([
+  ".avif",
+  ".gif",
+  ".jpeg",
+  ".jpg",
+  ".png",
+  ".webp"
+]);
 var WorkspaceError = class extends Error {
   constructor(code, message, details = void 0) {
     super(message);
@@ -23829,24 +24162,168 @@ async function inspectBundle(basePath, slug3) {
     present
   };
 }
-async function digestBundle(bundle) {
+function parseArticleForAssets(articleBytes) {
+  let article;
+  try {
+    article = JSON.parse(articleBytes.toString("utf8"));
+  } catch {
+    fail2("STAGING_BUNDLE_INVALID", "The staged article is not valid JSON.");
+  }
+  if (!article || typeof article !== "object" || Array.isArray(article)) {
+    fail2("STAGING_BUNDLE_INVALID", "The staged article JSON must be an object.");
+  }
+  return article;
+}
+function collectDeclaredLocalAssetNames(article) {
+  const assetNames = /* @__PURE__ */ new Set();
+  const appendLocalImage = (source, location) => {
+    if (!source || typeof source.path !== "string") {
+      return;
+    }
+    const match = SAFE_LOCAL_ASSET_PATH.exec(source.path);
+    if (!match) {
+      fail2(
+        "STAGING_BUNDLE_INVALID",
+        `${location} must use a safe flat ./assets/<filename> path.`
+      );
+    }
+    const filename = match[1];
+    if (!SUPPORTED_IMAGE_EXTENSIONS.has(path6.extname(filename).toLowerCase())) {
+      fail2(
+        "STAGING_BUNDLE_INVALID",
+        `${location} must reference a supported image file.`
+      );
+    }
+    assetNames.add(filename);
+  };
+  appendLocalImage(article.coverImage?.source, "coverImage.source");
+  for (const locale of ["en", "zh"]) {
+    const body = article.body?.[locale];
+    if (!Array.isArray(body)) {
+      continue;
+    }
+    for (const [index, item] of body.entries()) {
+      if (item?._type === "image") {
+        appendLocalImage(item.source, `body.${locale}.${index}.source`);
+      }
+    }
+  }
+  appendLocalImage(
+    article.seo?.openGraph?.image?.source,
+    "seo.openGraph.image.source"
+  );
+  return [...assetNames].sort();
+}
+function collectLocalAssetNames(article, slug3) {
+  const referencedAssetNames = collectDeclaredLocalAssetNames(article);
+  if (referencedAssetNames.length > MAX_STAGING_ASSETS) {
+    fail2(
+      "STAGING_BUNDLE_INVALID",
+      `The article bundle references more than ${MAX_STAGING_ASSETS} local images.`
+    );
+  }
+  const assetNames = [.../* @__PURE__ */ new Set([`${slug3}-cover.png`, ...referencedAssetNames])];
+  const identities = new Set(assetNames.map((filename) => filename.toLowerCase()));
+  if (identities.size !== assetNames.length) {
+    fail2(
+      "STAGING_BUNDLE_INVALID",
+      "Local image filenames must be unique without case distinctions."
+    );
+  }
+  return assetNames.sort();
+}
+function hasImageSignature2(bytes, extension) {
+  if (extension === ".png") {
+    return bytes.subarray(0, PNG_SIGNATURE.length).equals(PNG_SIGNATURE);
+  }
+  if (extension === ".jpg" || extension === ".jpeg") {
+    return bytes.length >= 3 && bytes[0] === 255 && bytes[1] === 216 && bytes[2] === 255;
+  }
+  if (extension === ".gif") {
+    const signature = bytes.subarray(0, 6).toString("ascii");
+    return signature === "GIF87a" || signature === "GIF89a";
+  }
+  if (extension === ".webp") {
+    return bytes.subarray(0, 4).toString("ascii") === "RIFF" && bytes.subarray(8, 12).toString("ascii") === "WEBP";
+  }
+  if (extension === ".avif") {
+    const box = bytes.subarray(0, 32).toString("ascii");
+    return box.slice(4, 8) === "ftyp" && /avif|avis/u.test(box.slice(8));
+  }
+  return false;
+}
+async function readCompleteBundle(bundle, slug3) {
+  const [markdownBytes, articleBytes] = await Promise.all([
+    readStableStagingFile(bundle.paths.markdownPath, {
+      label: "markdown",
+      maxBytes: MAX_STAGING_TEXT_BYTES,
+      limitDescription: "2 MiB"
+    }),
+    readStableStagingFile(bundle.paths.articlePath, {
+      label: "article JSON",
+      maxBytes: MAX_STAGING_TEXT_BYTES,
+      limitDescription: "2 MiB"
+    })
+  ]);
+  const article = parseArticleForAssets(articleBytes);
+  const assetNames = collectLocalAssetNames(article, slug3);
+  const assetEntries = await Promise.all(
+    assetNames.map(async (filename) => {
+      const bytes = await readStableStagingFile(
+        path6.join(path6.dirname(bundle.paths.coverPath), filename),
+        {
+          label: `image asset ${filename}`,
+          maxBytes: MAX_STAGING_COVER_BYTES,
+          limitDescription: "20 MiB"
+        }
+      );
+      if (!hasImageSignature2(bytes, path6.extname(filename).toLowerCase())) {
+        if (filename === `${slug3}-cover.png`) {
+          fail2("STAGING_BUNDLE_INVALID", "The staged cover must be a PNG image.");
+        }
+        fail2(
+          "STAGING_BUNDLE_INVALID",
+          `The staged image bytes do not match the extension: ${filename}.`
+        );
+      }
+      return [filename, bytes];
+    })
+  );
+  const totalAssetBytes = assetEntries.reduce(
+    (total, [, bytes]) => total + bytes.length,
+    0
+  );
+  if (totalAssetBytes > MAX_STAGING_ASSET_TOTAL_BYTES) {
+    fail2(
+      "STAGING_BUNDLE_INVALID",
+      "The staged image assets exceed the 256 MiB total limit."
+    );
+  }
+  return {
+    markdownBytes,
+    articleBytes,
+    article,
+    assetEntries,
+    assetNames
+  };
+}
+async function digestBundle(bundle, slug3) {
   if (bundle.state === "missing") {
-    return { state: "missing", digest: null };
+    return { state: "missing", digest: null, assetNames: [] };
   }
   if (bundle.state !== "complete") {
     fail2("LOCAL_BUNDLE_INCOMPLETE", "The local article bundle is incomplete.");
   }
+  const snapshot = await readCompleteBundle(bundle, slug3);
   const hash = createHash3("sha256");
-  for (const [label, fileLabel, entryPath, maxBytes, limitDescription] of [
-    ["markdown", "markdown", bundle.paths.markdownPath, MAX_STAGING_TEXT_BYTES, "2 MiB"],
-    ["article", "article JSON", bundle.paths.articlePath, MAX_STAGING_TEXT_BYTES, "2 MiB"],
-    ["cover", "cover", bundle.paths.coverPath, MAX_STAGING_COVER_BYTES, "20 MiB"]
+  for (const [label, bytes] of [
+    ["markdown", snapshot.markdownBytes],
+    ["article", snapshot.articleBytes],
+    ...snapshot.assetEntries.map(([filename, bytes2]) => [
+      `asset:${filename}`,
+      bytes2
+    ])
   ]) {
-    const bytes = await readStableStagingFile(entryPath, {
-      label: fileLabel,
-      maxBytes,
-      limitDescription
-    });
     hash.update(label);
     hash.update("\0");
     hash.update(String(bytes.length));
@@ -23854,7 +24331,11 @@ async function digestBundle(bundle) {
     hash.update(bytes);
     hash.update("\0");
   }
-  return { state: "complete", digest: hash.digest("hex") };
+  return {
+    state: "complete",
+    digest: hash.digest("hex"),
+    assetNames: snapshot.assetNames
+  };
 }
 function sameBaseline(left, right) {
   return left?.state === right?.state && (left.state === "missing" || left?.digest === right?.digest);
@@ -23897,7 +24378,7 @@ async function readReservationMetadata(workspace, slug3, reservationId3) {
   }
   return { metadata, lockPath };
 }
-async function copyExistingBundle(source, destination) {
+async function copyExistingBundle(source, destination, assetNames) {
   await assertDirectory(path6.dirname(destination.coverPath), {
     create: true,
     privateControl: true
@@ -23905,7 +24386,10 @@ async function copyExistingBundle(source, destination) {
   for (const [from, to] of [
     [source.markdownPath, destination.markdownPath],
     [source.articlePath, destination.articlePath],
-    [source.coverPath, destination.coverPath]
+    ...assetNames.map((filename) => [
+      path6.join(path6.dirname(source.coverPath), filename),
+      path6.join(path6.dirname(destination.coverPath), filename)
+    ])
   ]) {
     try {
       await copyFile(from, to);
@@ -23926,7 +24410,7 @@ async function prepare({ slug: slug3, config: config2, requireExisting }) {
     fail2("LOCAL_ARTICLE_NOT_FOUND", "The local article bundle does not exist.");
   }
   const mode = localBundle.state === "complete" ? "update" : "create";
-  const baseline = await digestBundle(localBundle);
+  const baseline = await digestBundle(localBundle, slug3);
   const reservationId3 = randomUUID2();
   const lockPath = path6.join(workspace.reservationsRoot, slug3);
   const stagingPath = path6.join(workspace.stagingRoot, reservationId3);
@@ -23955,11 +24439,18 @@ async function prepare({ slug: slug3, config: config2, requireExisting }) {
       privateControl: true
     });
     if (mode === "update") {
-      await copyExistingBundle(localBundle.paths, stagingBundle);
-      const stagedBaseline = await digestBundle({
-        state: "complete",
-        paths: stagingBundle
-      });
+      await copyExistingBundle(
+        localBundle.paths,
+        stagingBundle,
+        baseline.assetNames
+      );
+      const stagedBaseline = await digestBundle(
+        {
+          state: "complete",
+          paths: stagingBundle
+        },
+        slug3
+      );
       if (!sameBaseline(baseline, stagedBaseline)) {
         fail2(
           "BASELINE_CHANGED",
@@ -24091,74 +24582,208 @@ async function assertCommitReady(stagingBundle, slug3) {
   if (staged.state !== "complete") {
     fail2("STAGING_BUNDLE_INCOMPLETE", "The staging bundle must contain all three files.");
   }
-  const [markdownBytes, articleBytes, cover] = await Promise.all([
-    readStableStagingFile(stagingBundle.markdownPath, {
-      label: "markdown",
-      maxBytes: MAX_STAGING_TEXT_BYTES,
-      limitDescription: "2 MiB"
-    }),
-    readStableStagingFile(stagingBundle.articlePath, {
-      label: "article JSON",
-      maxBytes: MAX_STAGING_TEXT_BYTES,
-      limitDescription: "2 MiB"
-    }),
-    readStableStagingFile(stagingBundle.coverPath, {
-      label: "cover",
-      maxBytes: MAX_STAGING_COVER_BYTES,
-      limitDescription: "20 MiB"
-    })
-  ]);
-  const markdown = markdownBytes.toString("utf8");
-  const articleText = articleBytes.toString("utf8");
+  const snapshot = await readCompleteBundle(staged, slug3);
+  const markdown = snapshot.markdownBytes.toString("utf8");
+  const articleText = snapshot.articleBytes.toString("utf8");
   if (markdown.trim().length === 0 || articleText.trim().length === 0) {
     fail2("STAGING_BUNDLE_INVALID", "Markdown and article JSON must not be empty.");
   }
-  let article;
-  try {
-    article = JSON.parse(articleText);
-  } catch {
-    fail2("STAGING_BUNDLE_INVALID", "The staged article is not valid JSON.");
-  }
-  if (!article || typeof article !== "object" || Array.isArray(article)) {
-    fail2("STAGING_BUNDLE_INVALID", "The staged article JSON must be an object.");
-  }
-  const declaredSlug = typeof article.slug === "string" ? article.slug : article.slug?.current;
+  const declaredSlug = typeof snapshot.article.slug === "string" ? snapshot.article.slug : snapshot.article.slug?.current;
   if (declaredSlug !== void 0 && declaredSlug !== slug3) {
     fail2("STAGING_BUNDLE_INVALID", "The staged article slug does not match its reservation.");
   }
-  if (cover.length < PNG_SIGNATURE.length || !cover.subarray(0, PNG_SIGNATURE.length).equals(PNG_SIGNATURE)) {
+  const cover = snapshot.assetEntries.find(
+    ([filename]) => filename === `${slug3}-cover.png`
+  )?.[1];
+  if (!cover || cover.length < PNG_SIGNATURE.length || !cover.subarray(0, PNG_SIGNATURE.length).equals(PNG_SIGNATURE)) {
     fail2("STAGING_BUNDLE_INVALID", "The staged cover must be a PNG image.");
   }
+  const validatedSources = /* @__PURE__ */ new Map();
+  const addValidatedSource = (source, bytes, label, maxBytes, limitDescription) => {
+    validatedSources.set(source, {
+      digest: createHash3("sha256").update(bytes).digest("hex"),
+      size: bytes.length,
+      label,
+      maxBytes,
+      limitDescription
+    });
+  };
+  addValidatedSource(
+    stagingBundle.markdownPath,
+    snapshot.markdownBytes,
+    "markdown",
+    MAX_STAGING_TEXT_BYTES,
+    "2 MiB"
+  );
+  addValidatedSource(
+    stagingBundle.articlePath,
+    snapshot.articleBytes,
+    "article JSON",
+    MAX_STAGING_TEXT_BYTES,
+    "2 MiB"
+  );
+  for (const [filename, bytes] of snapshot.assetEntries) {
+    addValidatedSource(
+      path6.join(path6.dirname(stagingBundle.coverPath), filename),
+      bytes,
+      `image asset ${filename}`,
+      MAX_STAGING_COVER_BYTES,
+      "20 MiB"
+    );
+  }
+  return {
+    assetNames: snapshot.assetNames,
+    validatedSources
+  };
 }
 async function assertCurrentBaseline(workspace, slug3, expected) {
   const current = await inspectBundle(workspace.blogRoot, slug3);
   if (current.state === "partial") {
     fail2("BASELINE_CHANGED", "The local article bundle changed after it was reserved.");
   }
-  const actual = await digestBundle(current);
+  let actual;
+  try {
+    actual = await digestBundle(current, slug3);
+  } catch (error2) {
+    if (error2 instanceof WorkspaceError && [
+      "LOCAL_BUNDLE_INCOMPLETE",
+      "STAGING_BUNDLE_CHANGED",
+      "STAGING_BUNDLE_INVALID",
+      "UNSAFE_WORKSPACE_ENTRY"
+    ].includes(error2.code)) {
+      fail2("BASELINE_CHANGED", "The local article bundle changed after it was reserved.");
+    }
+    throw error2;
+  }
   if (!sameBaseline(expected, actual)) {
     fail2("BASELINE_CHANGED", "The local article bundle changed after it was reserved.");
   }
+  return actual;
 }
-function transactionPairs(stagingBundle, destinationBundle, backupRoot, slug3) {
+function assetIdentity(filename) {
+  return filename.toLowerCase();
+}
+async function assertExclusiveAssetOwnership(workspace, slug3, candidateNames) {
+  let entries;
+  try {
+    entries = await readdir(workspace.blogRoot);
+  } catch {
+    fail2("WORKSPACE_IO_FAILED", "Unable to inspect article asset ownership.");
+  }
+  const candidateIdentities = new Set(candidateNames.map(assetIdentity));
+  for (const entryName of entries) {
+    if (!entryName.endsWith(".json")) {
+      continue;
+    }
+    const otherSlug = entryName.slice(0, -".json".length);
+    if (otherSlug === slug3 || otherSlug.length > 96 || !SLUG_PATTERN3.test(otherSlug)) {
+      continue;
+    }
+    const articlePath3 = path6.join(workspace.blogRoot, entryName);
+    if (await getEntryKind(articlePath3) !== "file") {
+      fail2(
+        "UNSAFE_WORKSPACE_ENTRY",
+        "Another article JSON entry is not an ordinary file."
+      );
+    }
+    let article;
+    try {
+      const bytes = await readStableStagingFile(articlePath3, {
+        label: `article JSON ${entryName}`,
+        maxBytes: MAX_STAGING_TEXT_BYTES,
+        limitDescription: "2 MiB"
+      });
+      article = parseArticleForAssets(bytes);
+    } catch (error2) {
+      if (error2 instanceof WorkspaceError) {
+        fail2(
+          "INVALID_WORKSPACE",
+          "Another local article has invalid or unsafe asset metadata."
+        );
+      }
+      throw error2;
+    }
+    let claimedNames;
+    try {
+      claimedNames = [
+        `${otherSlug}-cover.png`,
+        ...collectDeclaredLocalAssetNames(article)
+      ];
+    } catch (error2) {
+      if (error2 instanceof WorkspaceError) {
+        fail2(
+          "INVALID_WORKSPACE",
+          "Another local article has invalid or unsafe asset metadata."
+        );
+      }
+      throw error2;
+    }
+    const conflict = claimedNames.find(
+      (filename) => candidateIdentities.has(assetIdentity(filename))
+    );
+    if (conflict) {
+      fail2(
+        "ASSET_OWNERSHIP_CONFLICT",
+        `The image asset ${conflict} is also owned by another local article.`
+      );
+    }
+  }
+}
+async function acquireAssetTransactionLock(workspace) {
+  const lockPath = path6.join(workspace.reservationsRoot, ASSET_TRANSACTION_LOCK);
+  try {
+    await mkdir3(lockPath, { recursive: false, mode: CONTROL_MODE });
+  } catch (error2) {
+    if (error2?.code === "EEXIST") {
+      fail2(
+        "ASSET_TRANSACTION_CONFLICT",
+        "Another article asset transaction is already in progress."
+      );
+    }
+    fail2("WORKSPACE_IO_FAILED", "Unable to lock the shared article assets.");
+  }
+  try {
+    await assertDirectory(lockPath, { privateControl: true });
+  } catch (error2) {
+    await rm4(lockPath, { recursive: true, force: true }).catch(() => {
+    });
+    throw error2;
+  }
+  return lockPath;
+}
+function transactionPairs(stagingBundle, destinationBundle, backupRoot, slug3, { mode, previousAssetNames, nextAssetNames, validatedSources }) {
   const backupBundle = bundlePaths(backupRoot, slug3);
-  return [
+  const pairs = [
     {
       source: stagingBundle.markdownPath,
       destination: destinationBundle.markdownPath,
-      backup: backupBundle.markdownPath
+      backup: backupBundle.markdownPath,
+      destinationExists: mode === "update",
+      expected: validatedSources.get(stagingBundle.markdownPath)
     },
     {
       source: stagingBundle.articlePath,
       destination: destinationBundle.articlePath,
-      backup: backupBundle.articlePath
-    },
-    {
-      source: stagingBundle.coverPath,
-      destination: destinationBundle.coverPath,
-      backup: backupBundle.coverPath
+      backup: backupBundle.articlePath,
+      destinationExists: mode === "update",
+      expected: validatedSources.get(stagingBundle.articlePath)
     }
   ];
+  const previousAssets = new Set(previousAssetNames);
+  const nextAssets = new Set(nextAssetNames);
+  const allAssets = [.../* @__PURE__ */ new Set([...previousAssets, ...nextAssets])].sort();
+  for (const filename of allAssets) {
+    pairs.push({
+      source: nextAssets.has(filename) ? path6.join(path6.dirname(stagingBundle.coverPath), filename) : null,
+      destination: path6.join(path6.dirname(destinationBundle.coverPath), filename),
+      backup: path6.join(path6.dirname(backupBundle.coverPath), filename),
+      destinationExists: previousAssets.has(filename),
+      expected: nextAssets.has(filename) ? validatedSources.get(
+        path6.join(path6.dirname(stagingBundle.coverPath), filename)
+      ) : null
+    });
+  }
+  return pairs;
 }
 var DEFAULT_TRANSACTION_OPS = Object.freeze({ rename: rename4 });
 var DEFAULT_CLEANUP_OPS = Object.freeze({ rm: rm4 });
@@ -24180,26 +24805,56 @@ async function rollbackTransaction({ moved, backedUp, fileOps }) {
   }
   return !failed;
 }
-async function commitTransaction({
-  pairs,
-  mode,
-  fileOps = DEFAULT_TRANSACTION_OPS
-}) {
+async function commitTransaction({ pairs, fileOps = DEFAULT_TRANSACTION_OPS }) {
   if (!fileOps || typeof fileOps.rename !== "function") {
     fail2("WORKSPACE_IO_FAILED", "Invalid internal filesystem operations.");
+  }
+  for (const pair of pairs) {
+    const destinationKind = await getEntryKind(pair.destination);
+    if (pair.destinationExists && destinationKind !== "file" || !pair.destinationExists && destinationKind !== "missing") {
+      fail2(
+        "BASELINE_CHANGED",
+        "The local article bundle changed before its transaction started."
+      );
+    }
+    if (pair.source !== null && await getEntryKind(pair.source) !== "file") {
+      fail2(
+        "UNSAFE_WORKSPACE_ENTRY",
+        "A staged bundle entry is no longer an ordinary file."
+      );
+    }
+    if (pair.source !== null && !pair.expected) {
+      fail2("WORKSPACE_IO_FAILED", "A staged bundle entry lacks a validated snapshot.");
+    }
   }
   const backedUp = [];
   const moved = [];
   try {
-    if (mode === "update") {
-      for (const pair of pairs) {
+    for (const pair of pairs) {
+      if (pair.destinationExists) {
         await fileOps.rename(pair.destination, pair.backup);
         backedUp.push(pair);
       }
     }
     for (const pair of pairs) {
-      await fileOps.rename(pair.source, pair.destination);
-      moved.push(pair);
+      if (pair.source !== null) {
+        await fileOps.rename(pair.source, pair.destination);
+        moved.push(pair);
+      }
+    }
+    for (const pair of moved) {
+      const bytes = await readStableStagingFile(pair.destination, {
+        label: pair.expected.label,
+        maxBytes: pair.expected.maxBytes,
+        limitDescription: pair.expected.limitDescription
+      });
+      const digest = createHash3("sha256").update(bytes).digest("hex");
+      if (bytes.length !== pair.expected.size || digest !== pair.expected.digest) {
+        fail2(
+          "STAGING_BUNDLE_CHANGED",
+          `The staged ${pair.expected.label} changed before promotion.`
+        );
+      }
     }
   } catch {
     const rolledBack = await rollbackTransaction({ moved, backedUp, fileOps });
@@ -24235,24 +24890,100 @@ async function commitReservation({
   await assertDirectory(stagingPath, { privateControl: true });
   await assertDirectory(stagingAssetsPath, { privateControl: true });
   const stagingBundle = bundlePaths(stagingPath, slug3);
-  await assertCommitReady(stagingBundle, slug3);
-  await assertCurrentBaseline(workspace, slug3, metadata.baseline);
-  const backupRoot = path6.join(stagingPath, ".backup");
-  await assertDirectory(backupRoot, {
-    create: true,
-    privateControl: true
-  });
-  await assertDirectory(path6.join(backupRoot, "assets"), {
-    create: true,
-    privateControl: true
-  });
+  const staged = await assertCommitReady(stagingBundle, slug3);
   const destinationBundle = bundlePaths(workspace.blogRoot, slug3);
-  const pairs = transactionPairs(stagingBundle, destinationBundle, backupRoot, slug3);
-  await commitTransaction({ pairs, mode: metadata.mode, fileOps });
+  const assetLockPath = await acquireAssetTransactionLock(workspace);
+  let committed = false;
+  let result;
+  let operationError;
   try {
-    await cleanupOps.rm(stagingPath, { recursive: true, force: true });
-    await cleanupOps.rm(lockPath, { recursive: true, force: true });
+    const current = await assertCurrentBaseline(
+      workspace,
+      slug3,
+      metadata.baseline
+    );
+    await assertExclusiveAssetOwnership(
+      workspace,
+      slug3,
+      [.../* @__PURE__ */ new Set([...current.assetNames, ...staged.assetNames])]
+    );
+    const backupRoot = path6.join(stagingPath, ".backup");
+    await assertDirectory(backupRoot, {
+      create: true,
+      privateControl: true
+    });
+    await assertDirectory(path6.join(backupRoot, "assets"), {
+      create: true,
+      privateControl: true
+    });
+    const pairs = transactionPairs(
+      stagingBundle,
+      destinationBundle,
+      backupRoot,
+      slug3,
+      {
+        mode: metadata.mode,
+        previousAssetNames: current.assetNames,
+        nextAssetNames: staged.assetNames,
+        validatedSources: staged.validatedSources
+      }
+    );
+    await commitTransaction({ pairs, fileOps });
+    committed = true;
+    try {
+      await cleanupOps.rm(stagingPath, { recursive: true, force: true });
+      await cleanupOps.rm(lockPath, { recursive: true, force: true });
+    } catch {
+      fail2(
+        "COMMIT_CLEANUP_FAILED",
+        "The article was committed, but reservation cleanup failed.",
+        {
+          committed: true,
+          slug: slug3,
+          reservationId: reservationId3,
+          mode: metadata.mode,
+          markdownPath: destinationBundle.markdownPath,
+          articlePath: destinationBundle.articlePath,
+          coverPath: destinationBundle.coverPath
+        }
+      );
+    }
+    result = {
+      slug: slug3,
+      reservationId: reservationId3,
+      mode: metadata.mode,
+      markdownPath: destinationBundle.markdownPath,
+      articlePath: destinationBundle.articlePath,
+      coverPath: destinationBundle.coverPath
+    };
+  } catch (error2) {
+    operationError = error2;
+  }
+  let assetLockCleanupFailed = false;
+  try {
+    await rm4(assetLockPath, { recursive: true, force: true });
   } catch {
+    assetLockCleanupFailed = true;
+  }
+  if (operationError) {
+    if (committed && !(operationError instanceof WorkspaceError)) {
+      fail2(
+        "COMMIT_CLEANUP_FAILED",
+        "The article was committed, but reservation cleanup failed.",
+        {
+          committed: true,
+          slug: slug3,
+          reservationId: reservationId3,
+          mode: metadata.mode,
+          markdownPath: destinationBundle.markdownPath,
+          articlePath: destinationBundle.articlePath,
+          coverPath: destinationBundle.coverPath
+        }
+      );
+    }
+    throw operationError;
+  }
+  if (assetLockCleanupFailed) {
     fail2(
       "COMMIT_CLEANUP_FAILED",
       "The article was committed, but reservation cleanup failed.",
@@ -24267,14 +24998,7 @@ async function commitReservation({
       }
     );
   }
-  return {
-    slug: slug3,
-    reservationId: reservationId3,
-    mode: metadata.mode,
-    markdownPath: destinationBundle.markdownPath,
-    articlePath: destinationBundle.articlePath,
-    coverPath: destinationBundle.coverPath
-  };
+  return result;
 }
 async function releaseReservation({ slug: slug3, reservationId: reservationId3, config: config2 }) {
   assertSlug(slug3);
@@ -24718,7 +25442,7 @@ var MAX_VIDEO_BYTES = 100 * 1024 * 1024;
 var MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024;
 var MAX_LOCAL_ASSETS = 10;
 var MAX_TOTAL_ASSET_BYTES = 256 * 1024 * 1024;
-var SAFE_LOCAL_ASSET_PATH = /^\.\/assets\/[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u;
+var SAFE_LOCAL_ASSET_PATH2 = /^\.\/assets\/[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u;
 var SAFE_KEY2 = /^[A-Za-z0-9_-]+$/u;
 var SLUG_PATTERN4 = /^[a-z0-9]+(?:-[a-z0-9]+)*$/u;
 var UUID_V4_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
@@ -24812,7 +25536,7 @@ var seoDescriptionSchema = external_exports.object({
   zh: nonEmptyString("Chinese SEO description", 180)
 }).strict();
 var localPathSchema = nonEmptyString("Asset path").regex(
-  SAFE_LOCAL_ASSET_PATH,
+  SAFE_LOCAL_ASSET_PATH2,
   "Local assets must use ./assets/<safe filename>."
 );
 var imageAssetRefSchema = nonEmptyString("Image assetRef").regex(
@@ -25310,11 +26034,11 @@ function normalizePublicSiteOrigin(value) {
   }
   return url.origin;
 }
-function normalizeCanonicalUrl(value, publicSiteOrigin) {
+function normalizeCanonicalUrl(value, publicSiteOrigin2) {
   const url = new URL(value);
-  if (url.origin !== publicSiteOrigin) {
+  if (url.origin !== publicSiteOrigin2) {
     throw new TypeError(
-      `Canonical URL must use the configured public site origin ${publicSiteOrigin}.`
+      `Canonical URL must use the configured public site origin ${publicSiteOrigin2}.`
     );
   }
   return url.href;
@@ -25326,7 +26050,7 @@ function schemaIssues(error2) {
     message: issue2.message
   }));
 }
-function parseContentArticle(candidate, contentType2, publicSiteOrigin) {
+function parseContentArticle(candidate, contentType2, publicSiteOrigin2) {
   let article;
   try {
     article = contentArticleSchema.parse(candidate);
@@ -25357,7 +26081,7 @@ function parseContentArticle(candidate, contentType2, publicSiteOrigin) {
       try {
         article.seo.canonicalUrl[locale] = normalizeCanonicalUrl(
           article.seo.canonicalUrl[locale],
-          publicSiteOrigin
+          publicSiteOrigin2
         );
       } catch (error2) {
         issues.push({
@@ -25545,13 +26269,13 @@ async function inspectArticleFile2(contentType2, articlePath3, config2) {
       error2
     );
   }
-  const publicSiteOrigin = normalizePublicSiteOrigin(
+  const publicSiteOrigin2 = normalizePublicSiteOrigin(
     config2.publicSiteOrigin ?? DEFAULT_PUBLIC_SITE_ORIGIN
   );
   const article = parseContentArticle(
     candidate,
     contentType2,
-    publicSiteOrigin
+    publicSiteOrigin2
   );
   if (path7.basename(resolvedArticle, ".json") !== article.slug || path7.basename(path7.dirname(resolvedArticle)) !== article.slug) {
     throw validationError(
@@ -26694,9 +27418,9 @@ import { pathToFileURL as pathToFileURL2 } from "node:url";
 var MAX_MARKDOWN_BYTES2 = 2 * 1024 * 1024;
 var MAX_PREVIEW_BYTES2 = 384 * 1024 * 1024;
 var FILE_MODE3 = 384;
-var SHA256_PATTERN = /^[0-9a-f]{64}$/u;
+var SHA256_PATTERN2 = /^[0-9a-f]{64}$/u;
 var SAFE_SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/u;
-var SAFE_IMAGE_MIME_TYPES = /* @__PURE__ */ new Set([
+var SAFE_IMAGE_MIME_TYPES2 = /* @__PURE__ */ new Set([
   "image/avif",
   "image/gif",
   "image/jpeg",
@@ -26745,7 +27469,7 @@ function safeExternalVideoHref(value) {
     return false;
   }
 }
-function localized(value, locale, fallback = "") {
+function localized2(value, locale, fallback = "") {
   if (typeof value === "string") return value;
   if (!value || typeof value !== "object") return fallback;
   if (typeof value[locale] === "string") return value[locale];
@@ -26753,7 +27477,7 @@ function localized(value, locale, fallback = "") {
   if (typeof value.zh === "string") return value.zh;
   return fallback;
 }
-function localizedKeywords(value, locale) {
+function localizedKeywords3(value, locale) {
   if (Array.isArray(value)) return value.filter((item) => typeof item === "string");
   if (!value || typeof value !== "object") return [];
   return Array.isArray(value[locale]) ? value[locale].filter((item) => typeof item === "string") : [];
@@ -26976,7 +27700,7 @@ function inspectPreviewAssets(snapshot) {
   const assets = [];
   const keys = /* @__PURE__ */ new Set();
   for (const candidate of materialized) {
-    if (!candidate || typeof candidate !== "object" || !["image", "video", "attachment"].includes(candidate.kind) || typeof candidate.sourcePath !== "string" || typeof candidate.filename !== "string" || typeof candidate.mimeType !== "string" || !Buffer.isBuffer(candidate.bytes) || !SHA256_PATTERN.test(candidate.sha256)) {
+    if (!candidate || typeof candidate !== "object" || !["image", "video", "attachment"].includes(candidate.kind) || typeof candidate.sourcePath !== "string" || typeof candidate.filename !== "string" || typeof candidate.mimeType !== "string" || !Buffer.isBuffer(candidate.bytes) || !SHA256_PATTERN2.test(candidate.sha256)) {
       fail3(
         "CONTENT_PREVIEW_ASSETS_INVALID",
         "A validated content asset has invalid preview metadata."
@@ -27069,7 +27793,7 @@ function imageDataUrl(source, context) {
   const localPath = sourcePath(source);
   if (!localPath) return void 0;
   const asset = context.byPath.get(localPath);
-  if (!asset || asset.kind !== "image" || !SAFE_IMAGE_MIME_TYPES.has(asset.mimeType)) {
+  if (!asset || asset.kind !== "image" || !SAFE_IMAGE_MIME_TYPES2.has(asset.mimeType)) {
     return void 0;
   }
   return `data:${asset.mimeType};base64,${asset.bytes.toString("base64")}`;
@@ -27116,8 +27840,8 @@ function renderBasicBlocks(blocks) {
   return (blocks ?? []).map((block) => renderBlock(block)).join("");
 }
 function renderImage2(item, locale, context, className = "body-image") {
-  const alt = localized(item.alt, locale, "Image");
-  const caption = localized(item.caption, locale);
+  const alt = localized2(item.alt, locale, "Image");
+  const caption = localized2(item.caption, locale);
   const dataUrl = imageDataUrl(item.source, context);
   if (!dataUrl) {
     context.counts.remoteImages += 1;
@@ -27142,7 +27866,7 @@ function renderCode2(item) {
 function renderPoster(poster, locale, context) {
   if (!poster) return "";
   const dataUrl = imageDataUrl(poster.source ?? poster, context);
-  const alt = localized(poster.alt, locale, "Video poster");
+  const alt = localized2(poster.alt, locale, "Video poster");
   if (dataUrl) {
     return `<img class="media-poster" src="${dataUrl}" alt="${escapeHtml2(alt)}">`;
   }
@@ -27150,8 +27874,8 @@ function renderPoster(poster, locale, context) {
   return `<div class="media-poster media-poster--placeholder" role="img" aria-label="${escapeHtml2(alt)}">Remote poster image</div>`;
 }
 function renderVideo(item, locale, context) {
-  const title = localized(item.title, locale, "Video");
-  const caption = localized(item.caption, locale);
+  const title = localized2(item.title, locale, "Video");
+  const caption = localized2(item.caption, locale);
   const poster = renderPoster(item.poster, locale, context);
   if (item.sourceType === "external") {
     context.counts.externalVideos += 1;
@@ -27184,7 +27908,7 @@ function renderVideo(item, locale, context) {
   </figure>`;
 }
 function renderAttachment(item, locale, context) {
-  const title = localized(item.title, locale, "Attachment");
+  const title = localized2(item.title, locale, "Attachment");
   const localPath = sourcePath(item.source);
   const asset = localPath ? context.byPath.get(localPath) : void 0;
   if (asset) context.counts.localAttachments += 1;
@@ -27204,7 +27928,7 @@ function renderAttachment(item, locale, context) {
 function renderCallout(item, locale) {
   const tones = /* @__PURE__ */ new Set(["info", "success", "warning", "error"]);
   const tone = tones.has(item.tone) ? item.tone : "info";
-  const title = localized(item.title, locale);
+  const title = localized2(item.title, locale);
   return `<aside class="callout callout--${tone}">
     <span class="eyebrow">${escapeHtml2(tone)} callout</span>
     ${title ? `<strong>${escapeHtml2(title)}</strong>` : ""}
@@ -27264,40 +27988,40 @@ function renderCover2(article, context) {
   if (!article.coverImage) {
     return `<div class="cover-placeholder">
       <span>Optional cover not supplied</span>
-      <strong>${escapeHtml2(localized(article.title, "en", article.slug))}</strong>
+      <strong>${escapeHtml2(localized2(article.title, "en", article.slug))}</strong>
     </div>`;
   }
   const dataUrl = imageDataUrl(article.coverImage.source, context);
   const alt = [
-    localized(article.coverImage.alt, "en", "Cover image"),
-    localized(article.coverImage.alt, "zh")
+    localized2(article.coverImage.alt, "en", "Cover image"),
+    localized2(article.coverImage.alt, "zh")
   ].filter(Boolean).join(" / ");
   if (!dataUrl) {
     context.counts.remoteImages += 1;
     return `<div class="cover-placeholder" role="img" aria-label="${escapeHtml2(alt)}">
       <span>Remote cover image placeholder</span>
-      <strong>${escapeHtml2(localized(article.title, "en", article.slug))}</strong>
+      <strong>${escapeHtml2(localized2(article.title, "en", article.slug))}</strong>
     </div>`;
   }
   return `<img class="cover" src="${dataUrl}" alt="${escapeHtml2(alt)}">`;
 }
-function renderSeoImage(openGraph, locale, context) {
-  if (!openGraph?.image) return "";
+function renderSeoImage2(openGraph2, locale, context) {
+  if (!openGraph2?.image) return "";
   return `<div class="seo-og-image">
     <span>Open Graph image</span>
-    ${renderImage2(openGraph.image, locale, context, "seo-image")}
+    ${renderImage2(openGraph2.image, locale, context, "seo-image")}
   </div>`;
 }
-function renderRobots(robots) {
-  if (!robots) return "Not specified";
-  if (typeof robots === "string") return robots;
-  if (Array.isArray(robots)) return robots.join(", ");
-  if (typeof robots === "object") {
-    return Object.entries(robots).map(([key, value]) => `${key}: ${String(value)}`).join(" \xB7 ");
+function renderRobots2(robots2) {
+  if (!robots2) return "Not specified";
+  if (typeof robots2 === "string") return robots2;
+  if (Array.isArray(robots2)) return robots2.join(", ");
+  if (typeof robots2 === "object") {
+    return Object.entries(robots2).map(([key, value]) => `${key}: ${String(value)}`).join(" \xB7 ");
   }
-  return String(robots);
+  return String(robots2);
 }
-function renderSeo(article, locale, context) {
+function renderSeo2(article, locale, context) {
   if (!article.seo) {
     return `<aside class="seo-card">
       <span class="eyebrow">SEO metadata</span>
@@ -27305,13 +28029,13 @@ function renderSeo(article, locale, context) {
     </aside>`;
   }
   const seo = article.seo;
-  const title = localized(seo.title, locale);
-  const description = localized(seo.description, locale);
-  const keywords = localizedKeywords(seo.keywords, locale);
-  const canonical = localized(seo.canonicalUrl, locale);
-  const openGraph = seo.openGraph;
-  const ogTitle = localized(openGraph?.title, locale, title);
-  const ogDescription = localized(openGraph?.description, locale, description);
+  const title = localized2(seo.title, locale);
+  const description = localized2(seo.description, locale);
+  const keywords = localizedKeywords3(seo.keywords, locale);
+  const canonical = localized2(seo.canonicalUrl, locale);
+  const openGraph2 = seo.openGraph;
+  const ogTitle = localized2(openGraph2?.title, locale, title);
+  const ogDescription = localized2(openGraph2?.description, locale, description);
   return `<aside class="seo-card" aria-label="Full SEO preview">
     <span class="eyebrow">Full SEO preview</span>
     <section>
@@ -27323,16 +28047,16 @@ function renderSeo(article, locale, context) {
     <dl class="seo-fields">
       <div><dt>Keywords</dt><dd>${keywords.length > 0 ? keywords.map(escapeHtml2).join(", ") : "Not specified"}</dd></div>
       <div><dt>Canonical URL</dt><dd>${canonical ? escapeHtml2(canonical) : "Not specified"}</dd></div>
-      <div><dt>Robots</dt><dd>${escapeHtml2(renderRobots(seo.robots))}</dd></div>
+      <div><dt>Robots</dt><dd>${escapeHtml2(renderRobots2(seo.robots))}</dd></div>
       <div><dt>Open Graph title</dt><dd>${escapeHtml2(ogTitle || "Not specified")}</dd></div>
       <div><dt>Open Graph description</dt><dd>${escapeHtml2(ogDescription || "Not specified")}</dd></div>
     </dl>
-    ${renderSeoImage(openGraph, locale, context)}
+    ${renderSeoImage2(openGraph2, locale, context)}
   </aside>`;
 }
 function renderLocale2(article, locale, label, context) {
-  const title = localized(article.title, locale, article.slug);
-  const excerpt = localized(article.excerpt, locale);
+  const title = localized2(article.title, locale, article.slug);
+  const excerpt = localized2(article.excerpt, locale);
   return `<article class="article" id="${locale}" lang="${locale === "zh" ? "zh-Hans" : "en"}">
     <header class="article-header">
       <span class="language-label">${escapeHtml2(label)}</span>
@@ -27340,7 +28064,7 @@ function renderLocale2(article, locale, label, context) {
       <p class="excerpt">${escapeHtml2(excerpt)}</p>
     </header>
     <div class="prose">${renderRichBody(article.body[locale], locale, context)}</div>
-    ${renderSeo(article, locale, context)}
+    ${renderSeo2(article, locale, context)}
   </article>`;
 }
 function renderHtml2(snapshot, markdownSource, revision, context) {
@@ -27353,7 +28077,7 @@ function renderHtml2(snapshot, markdownSource, revision, context) {
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex,nofollow">
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-src 'none'; object-src 'none'; media-src 'none'">
-  <title>${escapeHtml2(localized(article.title, "en", article.slug))} \u2014 local preview</title>
+  <title>${escapeHtml2(localized2(article.title, "en", article.slug))} \u2014 local preview</title>
   <style>
     :root { color-scheme: light dark; --bg: #f3f1eb; --paper: #fffdf8; --ink: #18201e; --muted: #65706b; --line: #d9d4ca; --accent: #0f766e; --soft: #dff4ef; --info: #2563eb; --success: #15803d; --warning: #b45309; --error: #b91c1c; }
     * { box-sizing: border-box; }
@@ -27534,7 +28258,7 @@ async function writePreview2(previewPath, source) {
   }
 }
 function validateSnapshot(snapshot) {
-  if (!snapshot || typeof snapshot !== "object" || typeof snapshot.contentType !== "string" || snapshot.contentType.trim().length === 0 || snapshot.contentType.length > 128 || typeof snapshot.slug !== "string" || !SAFE_SLUG.test(snapshot.slug) || typeof snapshot.articlePath !== "string" || !path9.isAbsolute(snapshot.articlePath) || !snapshot.article || typeof snapshot.article !== "object" || !snapshot.article.body || !Array.isArray(snapshot.article.body.en) || !Array.isArray(snapshot.article.body.zh) || !SHA256_PATTERN.test(snapshot.contentSha256)) {
+  if (!snapshot || typeof snapshot !== "object" || typeof snapshot.contentType !== "string" || snapshot.contentType.trim().length === 0 || snapshot.contentType.length > 128 || typeof snapshot.slug !== "string" || !SAFE_SLUG.test(snapshot.slug) || typeof snapshot.articlePath !== "string" || !path9.isAbsolute(snapshot.articlePath) || !snapshot.article || typeof snapshot.article !== "object" || !snapshot.article.body || !Array.isArray(snapshot.article.body.en) || !Array.isArray(snapshot.article.body.zh) || !SHA256_PATTERN2.test(snapshot.contentSha256)) {
     fail3(
       "CONTENT_PREVIEW_SNAPSHOT_INVALID",
       "The validated content snapshot is invalid."
@@ -27629,7 +28353,7 @@ import {
   lstat as lstat9,
   mkdir as mkdir5,
   open as open8,
-  readdir,
+  readdir as readdir2,
   readFile as readFile4,
   rename as rename7,
   rm as rm7,
@@ -27816,7 +28540,7 @@ function assertSafeAssetName(name) {
 async function inspectAssets3(assetsPath) {
   let names;
   try {
-    names = await readdir(assetsPath);
+    names = await readdir2(assetsPath);
   } catch {
     fail4("WORKSPACE_IO_FAILED", "Unable to inspect the content assets directory.");
   }
@@ -27907,7 +28631,7 @@ async function inspectBundle2(directoryPath, slug3) {
   }
   let rootNames;
   try {
-    rootNames = await readdir(directoryPath);
+    rootNames = await readdir2(directoryPath);
   } catch {
     fail4("WORKSPACE_IO_FAILED", "Unable to inspect the local content bundle.");
   }
@@ -28101,7 +28825,7 @@ async function readReservationMetadata2(workspace, contentType2, slug3, reservat
   }
   let names;
   try {
-    names = await readdir(lockPath);
+    names = await readdir2(lockPath);
   } catch {
     fail4("WORKSPACE_IO_FAILED", "Unable to inspect the content reservation.");
   }
@@ -29326,7 +30050,7 @@ function registerBlogTools(server, service) {
     "sanity_blog_prepare_publish",
     {
       title: "Prepare a Sanity blog publish bundle",
-      description: "Reserves a slug and returns staging paths for a new or complete existing local article bundle.",
+      description: "Reserves a slug and returns the existing staging paths for a new or complete local article bundle whose safe sibling assets may include referenced body and Open Graph images.",
       inputSchema: BASE_SLUG_INPUT2,
       annotations: LOCAL_WRITE2
     },
@@ -29336,7 +30060,7 @@ function registerBlogTools(server, service) {
     "sanity_blog_prepare_update",
     {
       title: "Prepare a strict Sanity blog update bundle",
-      description: "Returns staging paths only when the complete local article bundle already exists; it never creates an article.",
+      description: "Returns staging paths and copies every referenced local image only when the complete local article bundle already exists; it never creates an article.",
       inputSchema: SLUG_INPUT2,
       annotations: LOCAL_WRITE2
     },
@@ -29386,7 +30110,7 @@ function registerBlogTools(server, service) {
     "sanity_blog_commit",
     {
       title: "Commit a staged Sanity blog bundle",
-      description: "Atomically commits the complete reserved Markdown, article JSON, and PNG cover bundle after baseline checks.",
+      description: "Atomically commits the complete reserved Markdown, article JSON, PNG cover, and referenced local image set after baseline checks.",
       inputSchema: RESERVATION_INPUT2,
       annotations: LOCAL_DESTRUCTIVE2
     },

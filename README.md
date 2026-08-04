@@ -81,8 +81,9 @@ node src/cli.mjs --init
 
 配置保存在 `~/.sanity-blog/config.json`。`apiVersion` 固定为 `2026-07-05`，本地工作区自动创建在 `~/.sanity-blog/workspace`。
 
-六类富内容还使用非敏感的 `publicSiteOrigin` 校验 canonical URL，默认
-`https://miyaip.com`。现有四字段配置会自动使用该默认值，无需迁移。需要修改时运行：
+六类富内容以及显式填写 canonical URL 的旧 `blog-post` 都使用非敏感的
+`publicSiteOrigin` 校验站点 origin，默认 `https://miyaip.com`。现有四字段配置会
+自动使用该默认值，无需迁移。需要修改时运行：
 
 ```bash
 node src/cli.mjs --init-content
@@ -133,6 +134,14 @@ node src/cli.mjs --check
 | `solution` | `sanity-content-solution-preview` | `sanity-content-solution-publish` | `sanity-content-solution-update` |
 | `alternative` | `sanity-content-alternative-preview` | `sanity-content-alternative-publish` | `sanity-content-alternative-update` |
 | `tutorial` | `sanity-content-tutorial-preview` | `sanity-content-tutorial-publish` | `sanity-content-tutorial-update` |
+
+三个旧 `blog-post` 技能会在正文定稿后生成双语完整 SEO，并按信息增益决定是否
+生成正文图：流程、架构、比较或复杂概念确实需要视觉解释时通常生成 1–3 张，
+否则生成 0 张。中英正文复用同一张语言中立图片并分别提供自然 alt；没有图片
+生成能力时继续无正文图版本，不会下载不明素材。封面仍保持原有强制校验。
+完整 SEO 包括页面 title/description、每种语言 3–8 个自然关键词、Open Graph、
+robots 和 sitemap。canonical 默认省略，由发布器按站点 origin 与 slug 派生；
+显式提供时必须是同一站点 origin 下互不相同的完整中英文 URL。
 
 预览只处理本地 bundle，不探测或写入发布服务。发布先校验和预览，再
 dry-run，并仅在最终确认后写入远端。更新保持 PUT-only，文档缺失时绝不创建。

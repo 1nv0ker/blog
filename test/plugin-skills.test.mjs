@@ -188,6 +188,55 @@ test('preview skill creates, validates, renders, and optionally keeps a local bu
   assert.doesNotMatch(workflow, /sanity_blog_(?:publish|update)\(/u)
 })
 
+test('legacy blog skills generate complete SEO and gate optional AI body images', async (t) => {
+  for (const skillName of legacySkillNames) {
+    await t.test(skillName, async () => {
+      const [skill, agent] = await Promise.all([
+        text(`skills/${skillName}/SKILL.md`),
+        text(`skills/${skillName}/agents/openai.yaml`),
+      ])
+
+      assert.match(agent, new RegExp(`default_prompt:.*\\$${skillName}\\b`, 'u'))
+      assert.match(agent, /allow_implicit_invocation:\s*false/u)
+      assert.match(skill, /complete SEO/iu)
+      assert.match(skill, /seo\.keywords/u)
+      assert.match(skill, /seo\.canonicalUrl/u)
+      assert.match(skill, /seo\.openGraph/u)
+      assert.match(skill, /seo\.robots/u)
+      assert.match(skill, /seo\.sitemap/u)
+      assert.match(skill, /3[–-]8 unique/iu)
+      assert.match(skill, /## Body image gate/u)
+      assert.match(skill, /at most three/iu)
+      assert.match(skill, /materially easier to understand visually/iu)
+      assert.match(skill, /Generate zero (?:new )?body images/iu)
+      assert.match(skill, /AI image-generation capability/iu)
+      assert.match(skill, /continue without (?:new )?body images/iu)
+      assert.match(skill, /<slug>-<semantic-name>\.png/u)
+      assert.match(skill, /!\[alt\]\(\.\/assets\/<filename>\)/u)
+      assert.match(skill, /(?:same|one) local image file/iu)
+      assert.match(skill, /localized alt/iu)
+      assert.match(skill, /fabricated data charts/iu)
+      assert.match(skill, /misleading UI screenshots/iu)
+      assert.doesNotMatch(skill, /only the supported `seo\.title` and `seo\.description`/iu)
+      assert.doesNotMatch(skill, /Do not (?:create|add) `?keywords/iu)
+      assert.doesNotMatch(skill, /Every body `image` item must (?:preserve or )?use an existing Sanity `assetRef`/iu)
+    })
+  }
+
+  const publish = await text('skills/sanity-blog-publish/SKILL.md')
+  const preview = await text('skills/sanity-blog-preview/SKILL.md')
+  const update = await text('skills/sanity-blog-update/SKILL.md')
+  for (const skill of [publish, preview]) {
+    assert.match(skill, /publisher derives/iu)
+    assert.match(skill, /reuse the validated cover/iu)
+    assert.match(skill, /sitemap\.include` to `true`/u)
+  }
+  assert.match(update, /Omission preserves/iu)
+  assert.match(update, /possibly remote-only value/iu)
+  assert.match(update, /Preserve valid `seo\.keywords`/u)
+  assert.match(update, /Keep every existing local image or `assetRef`/u)
+})
+
 test('skills inventory contains exactly seven types with three dedicated workflows', async () => {
   const entries = await readdir(path.join(pluginRoot, 'skills'), {
     withFileTypes: true,

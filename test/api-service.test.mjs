@@ -1,9 +1,15 @@
 import assert from 'node:assert/strict'
 import {rm, writeFile} from 'node:fs/promises'
+import path from 'node:path'
 import test from 'node:test'
 
 import {createBlogService} from '../src/service.mjs'
-import {createArticleFixture, makeArticle, responsePayload} from './helpers.mjs'
+import {
+  PNG_BYTES,
+  createArticleFixture,
+  makeArticle,
+  responsePayload,
+} from './helpers.mjs'
 
 const ACCEPTED_PREVIEW_REVISION = 'a'.repeat(64)
 
@@ -359,17 +365,85 @@ test('confirmed remote success plus record failure reports partial success witho
   assert.equal(setup.calls.length, 2)
 })
 
-test('multipart requests preserve direct node fetch semantics and reject redirects', async (t) => {
-  const fixture = await createArticleFixture({localCover: true})
+test('multipart requests preserve complete SEO and deduplicate body and OG images', async (t) => {
+  const article = makeArticle('example-post', {localCover: true})
+  article.body.en.push({
+    _type: 'image',
+    source: {path: './assets/example-post-architecture.png'},
+    alt: 'Architecture showing the request flow',
+  })
+  article.body.zh.push({
+    _type: 'image',
+    source: {path: './assets/example-post-architecture.png'},
+    alt: '展示请求流程的架构图',
+  })
+  article.seo = {
+    ...article.seo,
+    keywords: {
+      en: ['request architecture', 'safe publishing', 'content workflow'],
+      zh: ['请求架构', '安全发布', '内容工作流'],
+    },
+    canonicalUrl: {
+      en: 'https://content.example.test/en/blog/example-post',
+      zh: 'https://content.example.test/zh/blog/example-post',
+    },
+    openGraph: {
+      title: {
+        en: 'A safe content publishing workflow',
+        zh: '安全的内容发布工作流',
+      },
+      description: {
+        en: 'Understand the architecture behind a safe content publishing workflow.',
+        zh: '了解安全内容发布工作流背后的架构。',
+      },
+      image: {
+        source: {path: './assets/example-post-architecture.png'},
+        alt: {
+          en: 'Architecture showing the request flow',
+          zh: '展示请求流程的架构图',
+        },
+      },
+    },
+    robots: {index: true, follow: true},
+    sitemap: {include: true},
+  }
+  const fixture = await createArticleFixture({
+    slug: article.slug,
+    localCover: true,
+    article,
+  })
   t.after(() => rm(fixture.workspaceRoot, {recursive: true, force: true}))
+  fixture.config.publicSiteOrigin = 'https://content.example.test'
+  await writeFile(
+    path.join(fixture.assetsRoot, 'example-post-architecture.png'),
+    PNG_BYTES,
+  )
   const calls = []
   const setup = serviceFor(fixture, {
     calls,
     responses: [
-      (_url, options) => {
+      async (url, options) => {
+        assert.equal(
+          url,
+          'https://publisher.example.test/v1/blog-posts?dryRun=true',
+        )
         assert.ok(options.body instanceof FormData)
         assert.equal(options.redirect, 'error')
         assert.equal(options.headers['Content-Type'], undefined)
+        const parts = [...options.body.entries()]
+        const articleParts = parts.filter(([name]) => name === 'article')
+        const assetParts = parts.filter(([name]) => name === 'assets')
+        assert.equal(articleParts.length, 1)
+        assert.deepEqual(
+          assetParts.map(([, value]) => value.name).sort(),
+          ['example-post-architecture.png', 'example-post-cover.png'],
+        )
+        const requestArticle = JSON.parse(await articleParts[0][1].text())
+        assert.deepEqual(requestArticle.seo, article.seo)
+        assert.equal(
+          requestArticle.body.en.at(-1).source.path,
+          './assets/example-post-architecture.png',
+        )
         return responsePayload({mode: 'create'})
       },
     ],
