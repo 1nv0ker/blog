@@ -1,6 +1,6 @@
 interface:
   display_name: "Sanity Blog Update"
-  short_description: "Update a blog's SEO and images without creating"
-  default_prompt: "Use $sanity-blog-update to safely revise an existing bilingual blog post while preserving valid SEO and images and generating only the new body images its content needs."
+  short_description: "Update blog templates and media without creating"
+  default_prompt: "Use $sanity-blog-update to safely revise an existing bilingual blog post while preserving its template unless an explicit switch is requested."
 policy:
   allow_implicit_invocation: false

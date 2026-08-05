@@ -1,11 +1,11 @@
 ---
 name: sanity-blog-publish
-description: Research, draft, validate, probe, and publish one legacy blog-post document with bilingual English and Chinese content, complete SEO, a compliant PNG cover, and optional AI-generated body images through the bundled sanityblog MCP server. Use only when the user explicitly asks to publish a blog-post and accepts a remote write; do not use for blog-en, another rich content type, read-only review, configuration-only work, or a request that is strictly an update.
+description: Research, template, draft, validate, preview, probe, and publish one bilingual blog-post with complete SEO, structured content, and warranted image, video, or attachment assets through the bundled sanityblog MCP server. Use only when the user explicitly asks to publish a blog-post and accepts a remote write; do not use for blog-en, another content type, read-only review, configuration-only work, or a request that is strictly an update.
 ---
 
 # Sanity Blog Publish
 
-Publish one fully researched, bilingual legacy `blog-post` through the bundled local MCP server. Treat the final publish call as an external write. Keep the staged files and safe receipt as the source of truth for the attempt.
+Publish one fully researched, bilingual, template-aware `blog-post` through the bundled local MCP server. Treat the final publish call as an external write. Keep the staged files and safe receipt as the source of truth for the attempt.
 
 ## Required MCP tools
 
@@ -56,11 +56,13 @@ Record for each used source: title, canonical URL, publisher or author, publicat
 
 ## Article requirements
 
-Build a complete bundle at the exact staging paths returned by preparation. The bilingual Markdown, strict article JSON, and real PNG cover are mandatory; optional body-image files must be referenced by the article and stored beside the cover. Never validate or publish a partial or unreferenced bundle.
+Build a complete bundle at the exact staging paths returned by preparation. The bilingual Markdown, strict article JSON, and real PNG cover are mandatory; every optional local image, video, and attachment must be referenced by the article and stored beside the cover. Never validate or publish a partial or unreferenced bundle.
+
+Read [the Blog Post template and module contract](../../references/blog-post-templates.md) completely before choosing a template or drafting modules. Honor an explicit template request. Otherwise infer the reader's primary job, ask only when materially different templates remain equally plausible, and write the selected `template` explicitly, including `default`. Plan both locale module sequences before writing and make each locale independently satisfy the selected template.
 
 - Write the complete English and Chinese Markdown source at `markdownPath`.
 - Explicitly generate the strict article object at `articlePath`; do not expect the server to convert Markdown for you.
-- Convert both language bodies into valid `body.en` and `body.zh` Portable Text arrays using only supported `block`, `image`, and `code` items. Put links in safe `link` `markDefs` and make span marks reference their keys.
+- Convert both language bodies into valid `body.en` and `body.zh` arrays using the supported text, image, code, video, attachment, callout, table, media-text, FAQ, tutorial, and CTA items from the shared contract. Put links in safe `link` `markDefs` and make span marks reference their keys.
 - Populate localized `{en, zh}` values for `title`, `excerpt`, `seo.title`, and `seo.description`.
 - Set `coverImage.source.path` to `./assets/<slug>-cover.png` and provide non-blank `coverImage.alt.en` and `coverImage.alt.zh`.
 - A body `image` may use an existing Sanity image `assetRef` or a validated local `source.path`. Put generated images beside `coverPath`, use `<slug>-<semantic-name>.png`, and reference them only as `./assets/<filename>`. Never use absolute, nested, traversal, URL, or unreferenced local paths.
@@ -129,11 +131,11 @@ If no image-generation capability is available, pause before validation and ask 
 
 ## Local preview gate
 
-After local validation and before any remote probe, call `sanity_blog_preview({articlePath})`. It writes a safe `<slug>.preview.html` beside the staged JSON, renders the validated JSON payload, complete SEO, and a separate safe Markdown view, embeds every validated local-image byte instead of retaining source-file references, and makes zero remote requests. An existing HTML preview therefore cannot drift if any source image changes later; regenerating it reads the new bytes and changes `previewRevision`.
+After local validation and before any remote probe, call `sanity_blog_preview({articlePath})`. It writes a safe `<slug>.preview.html` beside the staged JSON, renders the selected template, structured payload, complete SEO, and a separate safe Markdown view, and embeds validated local image/video bytes without retaining source-file references. External video remains a safe link and attachments remain metadata-only. The tool makes zero remote requests.
 
 Open the returned `previewUrl` with an available browser or visual inspection capability. Inspect English, Chinese, the embedded cover and body images, remote `assetRef` placeholders, links, code blocks, source sections, keywords, canonical status, Open Graph, robots, and sitemap. If no browser capability is available, provide the exact `previewPath` and state that the file was generated but not visually inspected.
 
-Let the user request edits at this stage. After every edit, validate and preview again. Do not call `sanity_blog_probe_publish` until the user accepts the current visual preview. Capture the exact accepted `previewRevision`, which binds the JSON, Markdown, and every validated local-image byte. Treat the preview as approximate because the production theme and components can differ. Publishing still uses the article JSON payload, so resolve any visible Markdown/JSON mismatch before probing.
+Let the user request edits at this stage. After every edit, validate and preview again. Do not call `sanity_blog_probe_publish` until the user accepts the current visual preview. Capture the exact accepted `previewRevision`, which binds the normalized JSON, Markdown, and every validated local asset byte. Treat the preview as approximate because the production theme and components can differ. Publishing still uses the article JSON payload, so resolve any visible Markdown/JSON mismatch before probing.
 
 ## Strict workflow
 
@@ -141,7 +143,7 @@ Let the user request edits at this stage. After every edit, validate and preview
 2. Call `sanity_blog_check_config({})`. If it returns `CONFIG_NOT_FOUND`, `INVALID_CONFIG`, or `LEGACY_CONFIG_REQUIRES_REINIT`, call `sanity_blog_start_config_setup({})` once. On Windows it opens a separate interactive PowerShell; on other platforms present the returned manual command. Tell the user that setup asks for four fields, that the token is entered only in the terminal, and stop this attempt until the user completes setup. For every other configuration error, stop without launching setup. After a successful check, capture the safe `publisherApiOrigin` and Sanity target for later confirmation; never inspect the token.
 3. Research the topic under the source-trust rules. Build the claim/source map before writing.
 4. Call `sanity_blog_prepare_publish({baseSlug})` once. Capture every returned staging path and attempt identifier. Stop if `articlePath`, `markdownPath`, `coverPath`, slug, or `reservationId` is missing.
-5. Write and fact-check the complete English and Chinese body first. Then generate complete SEO, apply the body-image gate, save any approved images beside `coverPath`, and keep Markdown and Portable Text semantically aligned. End both bodies with linked `## Sources` and `## 来源` sections.
+5. Select and write the template, plan both locale module sequences, and fact-check the complete English and Chinese body. Then generate complete SEO, apply the media information-gain and body-image gates, save approved assets beside `coverPath`, and keep Markdown and the structured JSON semantically aligned. End both bodies with linked `## Sources` and `## 来源` sections.
 6. Generate or obtain the compliant PNG at the returned `coverPath`, and make the default Open Graph image reuse that local cover. Stop if the cover gate cannot be satisfied.
 7. Call `sanity_blog_validate({articlePath})`. Fix only staged content and validate again until it succeeds. Do not preview or probe while validation fails.
 8. Call `sanity_blog_preview({articlePath})`. Open and inspect the returned HTML, present its path and approximation warnings, and let the user request edits. After every change, repeat validation and preview. Continue only after the user accepts the current preview, then freeze and record its exact `previewRevision`.

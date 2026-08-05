@@ -127,7 +127,7 @@ export function registerBlogTools(server, service) {
     {
       title: 'Prepare a Sanity blog publish bundle',
       description:
-        'Reserves a slug and returns the existing staging paths for a new or complete local article bundle whose safe sibling assets may include referenced body and Open Graph images.',
+        'Reserves a slug and returns staging paths for a new or complete local article bundle whose safe sibling assets may include nested images, videos, and attachments.',
       inputSchema: BASE_SLUG_INPUT,
       annotations: LOCAL_WRITE,
     },
@@ -139,7 +139,7 @@ export function registerBlogTools(server, service) {
     {
       title: 'Prepare a strict Sanity blog update bundle',
       description:
-        'Returns staging paths and copies every referenced local image only when the complete local article bundle already exists; it never creates an article.',
+        'Returns staging paths and copies every referenced local image, video, and attachment only when the complete local article bundle already exists; it never creates an article.',
       inputSchema: SLUG_INPUT,
       annotations: LOCAL_WRITE,
     },
@@ -151,7 +151,7 @@ export function registerBlogTools(server, service) {
     {
       title: 'Validate a local Sanity blog article',
       description:
-        'Performs the built-in article contract, path, Portable Text, image signature, and resource-limit checks with zero remote requests.',
+        'Validates the Blog Post template contract, structured Portable Text, safe paths, mixed asset signatures, and resource limits with zero remote requests.',
       inputSchema: ARTICLE_INPUT,
       annotations: READ_ONLY,
     },
@@ -163,7 +163,7 @@ export function registerBlogTools(server, service) {
     {
       title: 'Render a local Sanity blog preview',
       description:
-        'Validates the article JSON and local images, requires the sibling Markdown source, and writes a safe bilingual HTML preview without any remote request.',
+        'Validates the article JSON and mixed local assets, requires sibling Markdown, and writes a safe bilingual template-aware HTML preview without remote requests.',
       inputSchema: ARTICLE_INPUT,
       annotations: LOCAL_RENDER,
     },
@@ -201,7 +201,7 @@ export function registerBlogTools(server, service) {
     {
       title: 'Commit a staged Sanity blog bundle',
       description:
-        'Atomically commits the complete reserved Markdown, article JSON, PNG cover, and referenced local image set after baseline checks.',
+        'Atomically commits the complete reserved Markdown, article JSON, PNG cover, and referenced mixed asset set after baseline checks.',
       inputSchema: RESERVATION_INPUT,
       annotations: LOCAL_DESTRUCTIVE,
     },

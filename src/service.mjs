@@ -90,6 +90,15 @@ function confirmedReceipt(operation, result) {
   }
 }
 
+function articleSnapshotDetails(snapshot) {
+  return {
+    template: snapshot.template,
+    localImageCount: snapshot.localImageCount,
+    localAssetCount: snapshot.localAssetCount,
+    assetCounts: snapshot.assetCounts,
+  }
+}
+
 export function createBlogService({
   homeDir,
   platform = process.platform,
@@ -300,6 +309,7 @@ export function createBlogService({
           slug: articleSnapshot.slug,
           articlePath: articleSnapshot.articlePath,
           previewRevision,
+          ...articleSnapshotDetails(articleSnapshot),
           ...(outcome.mode === 'create'
             ? {publishedAt: outcome.createPublishedAt}
             : {
@@ -328,6 +338,7 @@ export function createBlogService({
           slug: articleSnapshot.slug,
           articlePath: articleSnapshot.articlePath,
           previewRevision,
+          ...articleSnapshotDetails(articleSnapshot),
           id: outcome.result.id,
           revision: outcome.result.revision,
           requestId: outcome.result.requestId,
@@ -368,6 +379,7 @@ export function createBlogService({
           ...final.result,
           articlePath: articleSnapshot.articlePath,
           previewRevision,
+          ...articleSnapshotDetails(articleSnapshot),
           recordPath,
         }
       })
@@ -398,6 +410,7 @@ export function createBlogService({
           ...final.result,
           articlePath: articleSnapshot.articlePath,
           previewRevision,
+          ...articleSnapshotDetails(articleSnapshot),
           recordPath,
         }
       })

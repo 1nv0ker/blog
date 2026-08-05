@@ -11,19 +11,20 @@ import path from 'node:path'
 import {pathToFileURL} from 'node:url'
 
 import {materializeArticlePreviewAssets} from './article.mjs'
+import {
+  SAFE_LOCAL_ASSET_PATH,
+  assetDefinitionForFilename,
+  collectBlogAssetSources,
+} from './blog-assets.mjs'
+import {
+  getBlogTemplatePreset,
+  resolveBlogTemplate,
+} from './blog-templates.mjs'
 
 const MAX_MARKDOWN_BYTES = 2 * 1024 * 1024
 const MAX_PREVIEW_BYTES = 384 * 1024 * 1024
 const FILE_MODE = 0o600
 const SHA256_PATTERN = /^[0-9a-f]{64}$/u
-const SAFE_ASSET_PATH = /^\.\/assets\/[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u
-const SAFE_IMAGE_MIME_TYPES = new Set([
-  'image/avif',
-  'image/gif',
-  'image/jpeg',
-  'image/png',
-  'image/webp',
-])
 
 export class PreviewError extends Error {
   constructor(code, message) {
@@ -122,11 +123,18 @@ async function inspectMarkdown(articlePath, slug) {
 }
 
 function safeLinkHref(value) {
-  if (value.startsWith('/') && !value.startsWith('//')) return true
-  if (value.startsWith('#') || value.startsWith('./') || value.startsWith('../')) return true
+  if (typeof value !== 'string' || /[\u0000-\u001f\u007f]/u.test(value)) return false
+  if (value.startsWith('//') || value.startsWith('\\\\')) return false
+  const scheme = /^([A-Za-z][A-Za-z0-9+.-]*):/u.exec(value)
+  if (!scheme) return true
+  const protocol = scheme[1].toLowerCase()
+  if (!['http', 'https', 'mailto', 'tel'].includes(protocol)) return false
+  if (protocol === 'mailto' || protocol === 'tel') {
+    return value.slice(scheme[0].length).trim().length > 0
+  }
   try {
     const url = new URL(value)
-    return ['http:', 'https:', 'mailto:', 'tel:'].includes(url.protocol)
+    return url.protocol === `${protocol}:` && Boolean(url.hostname)
   } catch {
     return false
   }
@@ -303,49 +311,70 @@ function materializePreviewAssetMap(snapshot) {
 
   const byPath = new Map()
   const byDigest = new Map()
+  let encodedBytes = 0
   for (const asset of assets) {
+    const fileDefinition = assetDefinitionForFilename(asset?.filename ?? '')
     if (
       !asset ||
       typeof asset !== 'object' ||
       typeof asset.sourcePath !== 'string' ||
-      !SAFE_ASSET_PATH.test(asset.sourcePath) ||
+      !SAFE_LOCAL_ASSET_PATH.test(asset.sourcePath) ||
+      typeof asset.filename !== 'string' ||
+      !fileDefinition ||
+      asset.kind !== fileDefinition.kind ||
       typeof asset.mimeType !== 'string' ||
-      !SAFE_IMAGE_MIME_TYPES.has(asset.mimeType) ||
+      asset.mimeType !== fileDefinition.mimeType ||
       !Buffer.isBuffer(asset.bytes) ||
+      asset.size !== asset.bytes.length ||
       !SHA256_PATTERN.test(asset.sha256) ||
       byPath.has(asset.sourcePath)
     ) {
       fail(
         'PREVIEW_ASSETS_INVALID',
-        'A validated article image has invalid preview metadata.',
+        'A validated article asset has invalid preview metadata.',
       )
     }
     const sha256 = createHash('sha256').update(asset.bytes).digest('hex')
     if (sha256 !== asset.sha256) {
       fail(
         'PREVIEW_ASSETS_INVALID',
-        'A validated article image changed before preview rendering.',
+        'A validated article asset changed before preview rendering.',
       )
     }
     let definition = byDigest.get(asset.sha256)
-    if (definition && definition.mimeType !== asset.mimeType) {
+    if (
+      definition &&
+      (definition.mimeType !== asset.mimeType || definition.kind !== asset.kind)
+    ) {
       fail(
         'PREVIEW_ASSETS_INVALID',
-        'Equivalent validated article image bytes have conflicting MIME types.',
+        'Equivalent validated article asset bytes have conflicting metadata.',
       )
     }
+    const embedsBytes = asset.kind === 'image' || asset.kind === 'video'
     definition ??= Object.freeze({
       id: `preview-asset-${asset.sha256}`,
+      filename: asset.filename,
+      kind: asset.kind,
       mimeType: asset.mimeType,
-      base64: asset.bytes.toString('base64'),
+      size: asset.size,
+      ...(embedsBytes ? {base64: asset.bytes.toString('base64')} : {}),
     })
+    if (!byDigest.has(asset.sha256) && embedsBytes) {
+      encodedBytes += definition.base64.length
+      if (encodedBytes > MAX_PREVIEW_BYTES) {
+        fail('PREVIEW_SIZE_INVALID', 'The embedded preview assets exceed the preview size limit.')
+      }
+    }
     byDigest.set(asset.sha256, definition)
     byPath.set(asset.sourcePath, definition)
   }
   return Object.freeze({
     byPath,
     definitions: Object.freeze(
-      [...byDigest.values()].sort((left, right) => left.id.localeCompare(right.id)),
+      [...byDigest.values()]
+        .filter((asset) => asset.base64)
+        .sort((left, right) => left.id.localeCompare(right.id)),
     ),
   })
 }
@@ -389,12 +418,19 @@ function renderSpans(block) {
           rendered = `<strong>${rendered}</strong>`
         } else if (mark === 'em') {
           rendered = `<em>${rendered}</em>`
+        } else if (mark === 'underline') {
+          rendered = `<u>${rendered}</u>`
+        } else if (mark === 'strike-through') {
+          rendered = `<s>${rendered}</s>`
         } else if (mark === 'code') {
           rendered = `<code>${rendered}</code>`
         } else {
           const definition = definitions.get(mark)
-          if (definition?._type === 'link') {
-            rendered = `<a href="${escapeHtml(definition.href)}" target="_blank" rel="noopener noreferrer">${rendered}</a>`
+          if (definition?._type === 'link' && safeLinkHref(definition.href)) {
+            const external = definition.openInNewTab !== false
+              ? ' target="_blank" rel="noopener noreferrer"'
+              : ''
+            rendered = `<a href="${escapeHtml(definition.href)}"${external}>${rendered}</a>`
           }
         }
       }
@@ -405,6 +441,7 @@ function renderSpans(block) {
 
 function renderImage(item, localAssets) {
   const asset = localAsset(item.source, localAssets)
+  const caption = item.caption || item.alt
   if (!asset) {
     return `<figure class="asset-placeholder" role="img" aria-label="${escapeHtml(item.alt)}">
       <div class="asset-placeholder__icon">◇</div>
@@ -414,7 +451,7 @@ function renderImage(item, localAssets) {
   }
   return `<figure class="body-image">
     ${renderEmbeddedImage(asset, item.alt, 'body-image__visual')}
-    <figcaption>${escapeHtml(item.alt)}</figcaption>
+    <figcaption>${escapeHtml(caption)}</figcaption>
   </figure>`
 }
 
@@ -426,9 +463,213 @@ function renderCode(item) {
   </figure>`
 }
 
-function renderStandaloneItem(item, localAssets) {
-  if (item._type === 'image') return renderImage(item, localAssets)
+function renderBlocks(items) {
+  return (items ?? []).map((item) => {
+    if (item._type === 'code') return renderCode(item)
+    const content = renderSpans(item)
+    if (item.style === 'h2') return `<h2>${content}</h2>`
+    if (item.style === 'h3') return `<h3>${content}</h3>`
+    if (item.style === 'blockquote') return `<blockquote>${content}</blockquote>`
+    return `<p>${content}</p>`
+  }).join('')
+}
+
+function formatBytes(bytes) {
+  if (!Number.isFinite(bytes)) return 'Unknown size'
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KiB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MiB`
+}
+
+function sourceReference(source) {
+  if (typeof source?.assetRef === 'string') return source.assetRef
+  if (typeof source?.path === 'string') return source.path
+  return 'Unknown asset'
+}
+
+function renderPoster(poster, localAssets) {
+  if (!poster) return {html: '', asset: undefined}
+  const asset = localAsset(poster.source, localAssets)
+  if (!asset) {
+    return {
+      html: `<div class="media-poster media-poster--placeholder" role="img" aria-label="${escapeHtml(poster.alt)}">Remote video poster</div>`,
+      asset: undefined,
+    }
+  }
+  return {
+    html: renderEmbeddedImage(asset, poster.alt, 'media-poster'),
+    asset,
+  }
+}
+
+function renderVideo(item, context) {
+  const poster = renderPoster(item.poster, context.localAssets)
+  if (item.sourceType === 'external') {
+    return `<figure class="media-card media-card--video">
+      ${poster.html}
+      <div class="media-card__body">
+        <span class="module-eyebrow">External video · safe link only</span>
+        <strong>${escapeHtml(item.title)}</strong>
+        ${item.caption ? `<p>${escapeHtml(item.caption)}</p>` : ''}
+        <a class="media-link" href="${escapeHtml(item.url)}" target="_blank" rel="noopener noreferrer">Open external video</a>
+      </div>
+    </figure>`
+  }
+
+  const asset = localAsset(item.source, context.localAssets)
+  if (asset?.kind === 'video') {
+    return `<figure class="media-card media-card--video">
+      <video class="local-video" controls preload="metadata" playsinline data-preview-asset="${asset.id}"${poster.asset ? ` data-preview-poster="${poster.asset.id}"` : ''} aria-label="${escapeHtml(item.title)}"></video>
+      <div class="media-card__body">
+        <span class="module-eyebrow">Validated local video</span>
+        <strong>${escapeHtml(item.title)}</strong>
+        ${item.caption ? `<p>${escapeHtml(item.caption)}</p>` : ''}
+      </div>
+    </figure>`
+  }
+
+  return `<figure class="media-card media-card--video">
+    ${poster.html}
+    <div class="media-card__body">
+      <span class="module-eyebrow">Remote Sanity video</span>
+      <strong>${escapeHtml(item.title)}</strong>
+      ${item.caption ? `<p>${escapeHtml(item.caption)}</p>` : ''}
+      <span class="asset-reference">${escapeHtml(sourceReference(item.source))}</span>
+    </div>
+  </figure>`
+}
+
+function renderAttachment(item, context) {
+  const asset = localAsset(item.source, context.localAssets)
+  return `<aside class="media-card media-card--attachment">
+    <span class="attachment-icon" aria-hidden="true">DOC</span>
+    <div class="media-card__body">
+      <span class="module-eyebrow">Attachment · metadata only</span>
+      <strong>${escapeHtml(item.title)}</strong>
+      <dl class="asset-meta">
+        <div><dt>Asset</dt><dd>${escapeHtml(asset?.filename ?? sourceReference(item.source))}</dd></div>
+        ${asset ? `<div><dt>Type</dt><dd>${escapeHtml(asset.mimeType)}</dd></div><div><dt>Size</dt><dd>${escapeHtml(formatBytes(asset.size))}</dd></div>` : ''}
+      </dl>
+    </div>
+  </aside>`
+}
+
+function renderCallout(item) {
+  return `<aside class="callout callout--${escapeHtml(item.tone)}">
+    <span class="module-eyebrow">${escapeHtml(item.tone)} callout</span>
+    ${item.title ? `<strong>${escapeHtml(item.title)}</strong>` : ''}
+    <div class="callout__body">${renderBlocks(item.body)}</div>
+  </aside>`
+}
+
+function renderTable(item) {
+  const headerRows = Math.min(item.headerRows, item.rows.length)
+  const renderRows = (rows, tag) => rows.map(
+    (row) => `<tr>${row.cells.map(
+      (cell) => `<${tag}>${renderBlocks(cell.value)}</${tag}>`,
+    ).join('')}</tr>`,
+  ).join('')
+  return `<div class="table-scroll" role="region" aria-label="Content table" tabindex="0">
+    <table>
+      ${headerRows > 0 ? `<thead>${renderRows(item.rows.slice(0, headerRows), 'th')}</thead>` : ''}
+      <tbody>${renderRows(item.rows.slice(headerRows), 'td')}</tbody>
+    </table>
+  </div>`
+}
+
+function renderMediaText(item, context) {
+  const autoAlternates = context.preset.mediaStyle === 'alternating'
+  const position = item.mediaPosition === 'auto'
+    ? autoAlternates && context.mediaIndex % 2 === 1
+      ? 'left'
+      : 'right'
+    : item.mediaPosition
+  context.mediaIndex += 1
+  const image = renderImage({
+    _type: 'image',
+    source: item.image.source,
+    alt: item.image.alt,
+    caption: item.image.caption,
+  }, context.localAssets)
+  return `<section class="media-text media-text--${position}">
+    <div class="media-text__copy">
+      ${item.eyebrow ? `<span class="module-eyebrow">${escapeHtml(item.eyebrow)}</span>` : ''}
+      <h2>${escapeHtml(item.heading)}</h2>
+      ${renderBlocks(item.body)}
+    </div>
+    <div class="media-text__media">${image}</div>
+  </section>`
+}
+
+function renderFaq(item) {
+  return `<section class="faq-section">
+    ${item.heading ? `<h2>${escapeHtml(item.heading)}</h2>` : ''}
+    <div class="faq-list">${item.items.map((faq) => `<details>
+      <summary>${escapeHtml(faq.question)}</summary>
+      <div class="faq-answer">${renderBlocks(faq.answer)}</div>
+    </details>`).join('')}</div>
+  </section>`
+}
+
+function renderTutorial(item, context) {
+  const steps = item.steps.map((step, index) => {
+    const anchor = `${context.locale}-step-${escapeHtml(step._key)}`
+    const image = step.image
+      ? renderImage({
+          _type: 'image',
+          source: step.image.source,
+          alt: step.image.alt,
+          caption: step.image.caption,
+        }, context.localAssets)
+      : ''
+    return `<section class="tutorial-step" id="${anchor}">
+      <span class="step-number">${String(index + 1).padStart(2, '0')}</span>
+      <div class="tutorial-step__body">
+        <h3>${escapeHtml(step.title)}</h3>
+        ${renderBlocks(step.body)}
+        ${image}
+      </div>
+    </section>`
+  }).join('')
+  const navigation = context.preset.stepNavigation
+    ? `<nav class="tutorial-nav" aria-label="Tutorial steps"><strong>${escapeHtml(item.heading || 'Steps')}</strong>${item.steps.map((step, index) => `<a href="#${context.locale}-step-${escapeHtml(step._key)}">${index + 1}. ${escapeHtml(step.title)}</a>`).join('')}</nav>`
+    : ''
+  return `<section class="tutorial-module">
+    ${item.heading ? `<h2>${escapeHtml(item.heading)}</h2>` : ''}
+    <div class="tutorial-layout">${navigation}<div class="tutorial-list">${steps}</div></div>
+  </section>`
+}
+
+function renderCtaAction(action, className) {
+  const external = action.openInNewTab !== false
+    ? ' target="_blank" rel="noopener noreferrer"'
+    : ''
+  return `<a class="${className}" href="${escapeHtml(action.href)}"${external}>${escapeHtml(action.label)}</a>`
+}
+
+function renderCta(item) {
+  return `<aside class="cta-card cta-card--${escapeHtml(item.theme)}">
+    ${item.eyebrow ? `<span class="module-eyebrow">${escapeHtml(item.eyebrow)}</span>` : ''}
+    <h2>${escapeHtml(item.heading)}</h2>
+    ${item.body ? `<div class="cta-card__body">${renderBlocks(item.body)}</div>` : ''}
+    <div class="cta-actions">
+      ${renderCtaAction(item.primaryAction, 'cta-action cta-action--primary')}
+      ${item.secondaryAction ? renderCtaAction(item.secondaryAction, 'cta-action cta-action--secondary') : ''}
+    </div>
+  </aside>`
+}
+
+function renderStandaloneItem(item, context) {
+  if (item._type === 'image') return renderImage(item, context.localAssets)
   if (item._type === 'code') return renderCode(item)
+  if (item._type === 'video') return renderVideo(item, context)
+  if (item._type === 'attachment') return renderAttachment(item, context)
+  if (item._type === 'callout') return renderCallout(item)
+  if (item._type === 'table') return renderTable(item)
+  if (item._type === 'mediaText') return renderMediaText(item, context)
+  if (item._type === 'faqSection') return renderFaq(item)
+  if (item._type === 'tutorialSteps') return renderTutorial(item, context)
+  if (item._type === 'cta') return renderCta(item)
   const content = renderSpans(item)
   if (item.style === 'h2') return `<h2>${content}</h2>`
   if (item.style === 'h3') return `<h3>${content}</h3>`
@@ -436,13 +677,13 @@ function renderStandaloneItem(item, localAssets) {
   return `<p>${content}</p>`
 }
 
-function renderPortableText(items, localAssets) {
+function renderPortableText(items, context) {
   const output = []
   let index = 0
   while (index < items.length) {
     const item = items[index]
     if (item._type !== 'block' || !item.listItem) {
-      output.push(renderStandaloneItem(item, localAssets))
+      output.push(renderStandaloneItem(item, context))
       index += 1
       continue
     }
@@ -467,13 +708,15 @@ function renderPortableText(items, localAssets) {
   return output.join('\n')
 }
 
-function renderCover(article, localAssets) {
+function renderCover(article, localAssets, locale) {
   const asset = localAsset(article.coverImage.source, localAssets)
-  const alt = `${article.coverImage.alt.en} / ${article.coverImage.alt.zh}`
+  const alt = locale
+    ? localized(article.coverImage.alt, locale, 'Cover image')
+    : `${article.coverImage.alt.en} / ${article.coverImage.alt.zh}`
   if (!asset) {
     return `<div class="cover-placeholder" role="img" aria-label="${escapeHtml(alt)}">
       <span>Remote cover image</span>
-      <strong>${escapeHtml(article.title.en)}</strong>
+      <strong>${escapeHtml(locale ? article.title[locale] : article.title.en)}</strong>
     </div>`
   }
   return renderEmbeddedImage(asset, alt, 'cover')
@@ -562,34 +805,35 @@ function renderSeo(article, locale, localAssets) {
   </aside>`
 }
 
-function renderLocale(article, locale, label, localAssets) {
+function renderLocale(article, locale, label, localAssets, template, preset) {
   const title = article.title[locale]
   const excerpt = article.excerpt[locale]
-  return `<article class="article" id="${locale}" lang="${locale}">
-    <header class="article-header">
+  const context = {locale, localAssets, template, preset, mediaIndex: 0}
+  const header = template === 'default'
+    ? `<header class="article-header">
       <span class="language-label">${escapeHtml(label)}</span>
       <h1>${escapeHtml(title)}</h1>
       <p class="excerpt">${escapeHtml(excerpt)}</p>
-    </header>
-    <div class="prose">${renderPortableText(article.body[locale], localAssets)}</div>
+    </header>`
+    : `<header class="template-hero template-hero--${preset.heroVariant}">
+      <div class="template-hero__copy">
+        <span class="language-label">${escapeHtml(label)} · ${escapeHtml(template)}</span>
+        <h1>${escapeHtml(title)}</h1>
+        <p class="excerpt">${escapeHtml(excerpt)}</p>
+      </div>
+      <div class="template-hero__media">${renderCover(article, localAssets, locale)}</div>
+    </header>`
+  return `<article class="article article--${escapeHtml(template)} article--${escapeHtml(preset.tone)}" id="${locale}" lang="${locale}" data-blog-template="${escapeHtml(template)}" data-content-width="${escapeHtml(preset.contentWidth)}">
+    ${header}
+    <div class="prose prose--${escapeHtml(preset.contentWidth)}">${renderPortableText(article.body[locale], context)}</div>
     ${renderSeo(article, locale, localAssets)}
   </article>`
 }
 
 function countRemoteImages(article) {
-  let count = 'assetRef' in article.coverImage.source ? 1 : 0
-  for (const locale of ['en', 'zh']) {
-    for (const item of article.body[locale]) {
-      if (item._type === 'image' && 'assetRef' in item.source) count += 1
-    }
-  }
-  if (
-    article.seo.openGraph?.image?.source &&
-    'assetRef' in article.seo.openGraph.image.source
-  ) {
-    count += 1
-  }
-  return count
+  return collectBlogAssetSources(article).filter(
+    ({kind, source}) => kind === 'image' && 'assetRef' in source,
+  ).length
 }
 
 function renderAssetBootstrap(localAssets, scriptNonce) {
@@ -624,6 +868,12 @@ function renderAssetBootstrap(localAssets, scriptNonce) {
         const objectUrl = sources.get(image.dataset.previewAsset)
         if (objectUrl) image.src = objectUrl
       }
+      for (const video of document.querySelectorAll('video[data-preview-asset]')) {
+        const objectUrl = sources.get(video.dataset.previewAsset)
+        if (objectUrl) video.src = objectUrl
+        const posterUrl = sources.get(video.dataset.previewPoster)
+        if (posterUrl) video.poster = posterUrl
+      }
       window.addEventListener(
         'pagehide',
         () => {
@@ -637,6 +887,8 @@ function renderAssetBootstrap(localAssets, scriptNonce) {
 
 function renderHtml(article, markdownSource, previewRevision, localAssets) {
   const scriptNonce = randomUUID().replaceAll('-', '')
+  const template = resolveBlogTemplate(article.template)
+  const preset = getBlogTemplatePreset(template)
   const published = article.publishedAt
     ? `<span>Published timestamp: ${escapeHtml(article.publishedAt)}</span>`
     : '<span>Draft without a fixed publication timestamp</span>'
@@ -646,7 +898,7 @@ function renderHtml(article, markdownSource, previewRevision, localAssets) {
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex,nofollow">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data: blob:; script-src 'nonce-${scriptNonce}'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-src 'none'; object-src 'none'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data: blob:; media-src blob:; script-src 'nonce-${scriptNonce}'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-src 'none'; object-src 'none'">
   <title>${escapeHtml(article.title.en)} — local preview</title>
   <style>
     :root { color-scheme: light dark; --bg: #f4f1ea; --paper: #fffdf8; --ink: #17201d; --muted: #66706c; --line: #d9d3c8; --accent: #0f766e; --soft: #dff4ef; }
@@ -666,7 +918,7 @@ function renderHtml(article, markdownSource, previewRevision, localAssets) {
     .cover-placeholder strong { font-size: clamp(24px, 5vw, 58px); line-height: 1.08; }
     .hero-meta { padding: 18px 24px; display: flex; flex-wrap: wrap; gap: 10px 18px; color: var(--muted); font-size: 14px; }
     .columns { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; margin-top: 18px; align-items: start; }
-    .article { min-width: 0; padding: clamp(24px, 4vw, 54px); border: 1px solid var(--line); border-radius: 24px; background: var(--paper); box-shadow: 0 18px 44px rgba(28, 40, 35, .07); }
+    .article { min-width: 0; overflow: hidden; padding: clamp(24px, 4vw, 54px); border: 1px solid var(--line); border-radius: 24px; background: var(--paper); box-shadow: 0 18px 44px rgba(28, 40, 35, .07); container-type: inline-size; }
     .language-label { display: inline-block; margin-bottom: 14px; color: var(--accent); font-size: 12px; font-weight: 800; letter-spacing: .16em; text-transform: uppercase; }
     h1 { margin: 0; font-family: Georgia, "Times New Roman", serif; font-size: clamp(36px, 5vw, 62px); line-height: 1.03; letter-spacing: -.035em; }
     .excerpt { margin: 22px 0 0; color: var(--muted); font-size: 19px; line-height: 1.55; }
@@ -690,6 +942,72 @@ function renderHtml(article, markdownSource, previewRevision, localAssets) {
     .code-block figcaption { margin: 0; padding: 9px 14px; background: #1f2937; color: #9ca3af; }
     .code-block pre { margin: 0; padding: 18px; overflow: auto; }
     .code-block code { padding: 0; background: none; color: inherit; }
+    .template-hero { display: grid; grid-template-columns: minmax(0, 1.08fr) minmax(220px, .92fr); gap: clamp(22px, 4vw, 48px); margin: calc(clamp(24px, 4vw, 54px) * -1); margin-bottom: 42px; padding: clamp(30px, 5vw, 64px); background: #070908; color: #fff; isolation: isolate; }
+    .template-hero::before { content: ""; position: absolute; inset: 0; pointer-events: none; opacity: .28; background-image: linear-gradient(rgba(255,255,255,.08) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.08) 1px, transparent 1px); background-size: 32px 32px; z-index: -1; }
+    .template-hero { position: relative; }
+    .template-hero__copy { align-self: center; }
+    .template-hero h1 { color: #fff; }
+    .template-hero .excerpt { color: #c5ccc8; }
+    .template-hero .language-label { color: #76e7cc; }
+    .template-hero__media { align-self: center; }
+    .template-hero .cover, .template-hero .cover-placeholder { aspect-ratio: 16 / 10; border-radius: 18px; }
+    .template-hero--compact { grid-template-columns: 1fr; text-align: center; }
+    .template-hero--compact .template-hero__copy { width: min(720px, 100%); margin: auto; }
+    .template-hero--compact .template-hero__media { width: min(780px, 100%); margin: auto; }
+    .template-hero--compact .cover, .template-hero--compact .cover-placeholder { aspect-ratio: 16 / 7; }
+    .template-hero--editorial { grid-template-columns: minmax(0, 1.2fr) minmax(190px, .8fr); }
+    .template-hero--editorial .cover, .template-hero--editorial .cover-placeholder { aspect-ratio: 5 / 4; }
+    .prose--reading { width: min(50rem, 100%); margin-inline: auto; }
+    .prose--wide { width: min(54rem, 100%); margin-inline: auto; }
+    .module-eyebrow { display: block; margin-bottom: 8px; color: var(--accent); font: 800 11px/1.3 Inter, ui-sans-serif, system-ui, sans-serif; letter-spacing: .14em; text-transform: uppercase; }
+    .media-text { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: center; gap: clamp(26px, 5vw, 58px); margin: 54px 0; }
+    .media-text--left .media-text__media { order: -1; }
+    .media-text__copy h2 { margin-top: 0; }
+    .media-text .body-image { margin: 0; }
+    .media-text .body-image img { min-height: 230px; object-fit: cover; }
+    .faq-section, .tutorial-module { margin: 58px 0; }
+    .faq-list { display: grid; gap: 10px; }
+    .faq-list details { padding: 0 18px; border: 1px solid var(--line); border-radius: 14px; background: color-mix(in srgb, var(--soft) 28%, var(--paper)); }
+    .faq-list summary { cursor: pointer; padding: 17px 0; font: 750 17px/1.4 Inter, ui-sans-serif, system-ui, sans-serif; }
+    .faq-answer { padding: 0 0 16px; }
+    .tutorial-layout { display: grid; grid-template-columns: minmax(150px, .35fr) minmax(0, 1fr); gap: 28px; align-items: start; }
+    .tutorial-nav { position: sticky; top: 18px; display: grid; gap: 8px; padding: 16px; border: 1px solid var(--line); border-radius: 14px; font: 13px/1.4 Inter, ui-sans-serif, system-ui, sans-serif; }
+    .tutorial-nav a { text-decoration: none; }
+    .tutorial-list { display: grid; gap: 28px; }
+    .tutorial-step { display: grid; grid-template-columns: 46px minmax(0, 1fr); gap: 16px; scroll-margin-top: 24px; }
+    .tutorial-step h3 { margin-top: 0; }
+    .step-number { display: grid; width: 42px; height: 42px; place-content: center; border-radius: 50%; background: var(--accent); color: #fff; font: 800 13px/1 Inter, ui-sans-serif, system-ui, sans-serif; }
+    .callout { margin: 28px 0; padding: 20px; border: 1px solid var(--line); border-left: 5px solid var(--accent); border-radius: 12px; background: color-mix(in srgb, var(--soft) 40%, var(--paper)); }
+    .callout--success { border-left-color: #16a34a; }
+    .callout--warning { border-left-color: #d97706; }
+    .callout--error { border-left-color: #dc2626; }
+    .callout > strong { display: block; font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
+    .table-scroll { margin: 34px 0; overflow-x: auto; border: 1px solid var(--line); border-radius: 14px; }
+    table { width: 100%; border-collapse: collapse; font: 14px/1.5 Inter, ui-sans-serif, system-ui, sans-serif; }
+    th, td { min-width: 140px; padding: 14px 16px; border: 1px solid var(--line); vertical-align: top; text-align: left; }
+    th { background: color-mix(in srgb, var(--soft) 70%, var(--paper)); }
+    th p, td p { margin: 0; }
+    .media-card { display: grid; grid-template-columns: minmax(150px, .45fr) minmax(0, 1fr); gap: 18px; align-items: center; margin: 30px 0; overflow: hidden; border: 1px solid var(--line); border-radius: 16px; background: color-mix(in srgb, var(--soft) 28%, var(--paper)); font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
+    .media-card__body { padding: 18px; }
+    .media-card__body > strong { display: block; font-size: 18px; }
+    .media-card__body p { margin: 8px 0; }
+    .media-poster, .local-video { display: block; width: 100%; aspect-ratio: 16 / 9; object-fit: cover; background: #080b0a; }
+    .media-poster--placeholder { display: grid; place-content: center; min-height: 170px; color: var(--muted); }
+    .media-card--attachment { grid-template-columns: auto minmax(0, 1fr); padding-left: 18px; }
+    .attachment-icon { display: grid; width: 58px; height: 58px; place-content: center; border-radius: 14px; background: var(--accent); color: #fff; font-size: 12px; font-weight: 900; }
+    .asset-meta { margin: 10px 0 0; font-size: 12px; }
+    .asset-meta div { display: grid; grid-template-columns: 56px minmax(0, 1fr); gap: 8px; }
+    .asset-meta dt { color: var(--muted); }
+    .asset-meta dd { margin: 0; overflow-wrap: anywhere; }
+    .asset-reference { overflow-wrap: anywhere; color: var(--muted); font-size: 12px; }
+    .cta-card { margin: 56px 0 12px; padding: clamp(26px, 5vw, 48px); border-radius: 20px; background: #101512; color: #fff; }
+    .cta-card--brand { background: #0f766e; }
+    .cta-card--light { border: 1px solid var(--line); background: var(--soft); color: var(--ink); }
+    .cta-card h2 { margin: 0; color: inherit; }
+    .cta-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 20px; }
+    .cta-action { padding: 10px 16px; border: 1px solid currentColor; border-radius: 999px; color: inherit; font: 750 14px/1.2 Inter, ui-sans-serif, system-ui, sans-serif; text-decoration: none; }
+    .cta-action--primary { border-color: #fff; background: #fff; color: #101512; }
+    .cta-card--light .cta-action--primary { border-color: var(--accent); background: var(--accent); color: #fff; }
     .seo-card { margin-top: 46px; padding: 18px; border: 1px solid var(--line); border-radius: 14px; background: color-mix(in srgb, var(--soft) 46%, var(--paper)); font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
     .seo-card__label { display: block; margin-bottom: 8px; color: var(--accent); font-size: 11px; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; }
     .seo-card h3 { margin: 18px 0 8px; font-size: 14px; }
@@ -710,7 +1028,10 @@ function renderHtml(article, markdownSource, previewRevision, localAssets) {
     .markdown-prose { width: min(760px, 100%); margin: 34px auto 0; }
     .unsafe-link { text-decoration: line-through; text-decoration-color: #dc2626; cursor: not-allowed; }
     footer { margin-top: 18px; color: var(--muted); text-align: center; font-size: 13px; }
-    @media (max-width: 840px) { .columns { grid-template-columns: 1fr; } .article { padding: 28px 22px; } h1 { font-size: 42px; } }
+    @container (max-width: 620px) { .template-hero { grid-template-columns: 1fr; } .media-text { grid-template-columns: 1fr; } .media-text__media { order: -1; } .tutorial-layout { grid-template-columns: 1fr; } .tutorial-nav { position: static; } }
+    @media (max-width: 840px) { .columns { grid-template-columns: 1fr; } .article { padding: 28px 22px; } h1 { font-size: 42px; } .template-hero { grid-template-columns: 1fr; margin: -28px -22px 36px; padding: 36px 22px; } .media-text { grid-template-columns: 1fr; } .media-text__media { order: -1; } .tutorial-layout { grid-template-columns: 1fr; } .tutorial-nav { position: static; } }
+    @media (max-width: 560px) { .shell { width: min(100% - 18px, 1120px); } .media-card { grid-template-columns: 1fr; } .media-card--attachment { grid-template-columns: auto minmax(0, 1fr); } .tutorial-step { grid-template-columns: 38px minmax(0, 1fr); } }
+    @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; } }
     @media (prefers-color-scheme: dark) { :root { --bg: #101512; --paper: #171d1a; --ink: #edf4ef; --muted: #a3ada7; --line: #344039; --accent: #5eead4; --soft: #183d36; } .hero, .article { box-shadow: none; } .seo-card strong { color: #8ab4ff; } }
   </style>
 </head>
@@ -720,13 +1041,13 @@ function renderHtml(article, markdownSource, previewRevision, localAssets) {
       <span><strong>Local draft preview</strong> · approximate production appearance</span>
       <nav aria-label="Languages"><a href="#en">English</a><a href="#zh">中文</a></nav>
     </div>
-    <section class="hero">
-      ${renderCover(article, localAssets)}
-      <div class="hero-meta"><span>/${escapeHtml(article.slug)}</span>${published}<span>Source: validated article JSON</span><span>Preview revision: ${escapeHtml(previewRevision.slice(0, 12))}</span></div>
+    <section class="hero hero--${escapeHtml(template)}">
+      ${template === 'default' ? renderCover(article, localAssets) : ''}
+      <div class="hero-meta"><span>/${escapeHtml(article.slug)}</span><span>Template: ${escapeHtml(template)}</span>${published}<span>Source: validated article JSON</span><span>Preview revision: ${escapeHtml(previewRevision.slice(0, 12))}</span></div>
     </section>
     <section class="columns">
-      ${renderLocale(article, 'en', 'English', localAssets)}
-      ${renderLocale(article, 'zh', '中文', localAssets)}
+      ${renderLocale(article, 'en', 'English', localAssets, template, preset)}
+      ${renderLocale(article, 'zh', '中文', localAssets, template, preset)}
     </section>
     <details class="markdown-card" open>
       <summary>Markdown visual preview</summary>
@@ -850,12 +1171,16 @@ export async function renderArticlePreview(snapshot) {
     markdownRendered: true,
     previewRevision,
     slug: snapshot.slug,
+    template: snapshot.template ?? resolveBlogTemplate(snapshot.article.template),
     articlePath: snapshot.articlePath,
     markdownPath,
     ...(coverPath ? {coverPath} : {}),
     previewPath,
     previewUrl: pathToFileURL(previewPath).href,
     locales: ['en', 'zh'],
+    localImageCount: snapshot.localImageCount,
+    localAssetCount: snapshot.localAssetCount,
+    assetCounts: snapshot.assetCounts,
     warnings,
   }
 }

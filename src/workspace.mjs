@@ -13,6 +13,15 @@ import {
 } from "node:fs/promises";
 import path from "node:path";
 
+import {
+  MAX_LOCAL_ASSETS,
+  MAX_TOTAL_ASSET_BYTES,
+  SAFE_LOCAL_ASSET_PATH,
+  assetDefinitionForFilename,
+  collectBlogAssetSources,
+  hasAssetSignature,
+} from "./blog-assets.mjs";
+
 const SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const RESERVATION_ID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -21,21 +30,10 @@ const METADATA_FILE = "reservation.json";
 const CONTROL_MODE = 0o700;
 const FILE_MODE = 0o600;
 const MAX_STAGING_TEXT_BYTES = 2 * 1024 * 1024;
-const MAX_STAGING_COVER_BYTES = 20 * 1024 * 1024;
-const MAX_STAGING_ASSETS = 10;
-const MAX_STAGING_ASSET_TOTAL_BYTES = 256 * 1024 * 1024;
+const MAX_STAGING_ASSETS = MAX_LOCAL_ASSETS;
+const MAX_STAGING_ASSET_TOTAL_BYTES = MAX_TOTAL_ASSET_BYTES;
 const READ_CHUNK_BYTES = 64 * 1024;
-const SAFE_LOCAL_ASSET_PATH =
-  /^\.\/assets\/([A-Za-z0-9][A-Za-z0-9._-]{0,127})$/u;
 const ASSET_TRANSACTION_LOCK = ".asset-transaction";
-const SUPPORTED_IMAGE_EXTENSIONS = new Set([
-  ".avif",
-  ".gif",
-  ".jpeg",
-  ".jpg",
-  ".png",
-  ".webp",
-]);
 
 export class WorkspaceError extends Error {
   constructor(code, message, details = undefined) {
@@ -250,11 +248,9 @@ function parseArticleForAssets(articleBytes) {
 }
 
 function collectDeclaredLocalAssetNames(article) {
-  const assetNames = new Set();
-  const appendLocalImage = (source, location) => {
-    if (!source || typeof source.path !== "string") {
-      return;
-    }
+  const assetNames = new Map();
+  for (const { kind, source, location } of collectBlogAssetSources(article)) {
+    if (!source || typeof source.path !== "string") continue;
     const match = SAFE_LOCAL_ASSET_PATH.exec(source.path);
     if (!match) {
       fail(
@@ -264,33 +260,25 @@ function collectDeclaredLocalAssetNames(article) {
     }
 
     const filename = match[1];
-    if (!SUPPORTED_IMAGE_EXTENSIONS.has(path.extname(filename).toLowerCase())) {
+    const definition = assetDefinitionForFilename(filename);
+    if (!definition || definition.kind !== kind) {
       fail(
         "STAGING_BUNDLE_INVALID",
-        `${location} must reference a supported image file.`,
+        `${location} must reference a supported ${kind} file.`,
       );
     }
-    assetNames.add(filename);
-  };
-
-  appendLocalImage(article.coverImage?.source, "coverImage.source");
-  for (const locale of ["en", "zh"]) {
-    const body = article.body?.[locale];
-    if (!Array.isArray(body)) {
-      continue;
+    const identity = filename.toLowerCase();
+    const previous = assetNames.get(identity);
+    if (previous && previous !== filename) {
+      fail(
+        "STAGING_BUNDLE_INVALID",
+        "Local asset filenames must be unique without case distinctions.",
+      );
     }
-    for (const [index, item] of body.entries()) {
-      if (item?._type === "image") {
-        appendLocalImage(item.source, `body.${locale}.${index}.source`);
-      }
-    }
+    assetNames.set(identity, filename);
   }
-  appendLocalImage(
-    article.seo?.openGraph?.image?.source,
-    "seo.openGraph.image.source",
-  );
 
-  return [...assetNames].sort();
+  return [...assetNames.values()].sort();
 }
 
 function collectLocalAssetNames(article, slug) {
@@ -298,7 +286,7 @@ function collectLocalAssetNames(article, slug) {
   if (referencedAssetNames.length > MAX_STAGING_ASSETS) {
     fail(
       "STAGING_BUNDLE_INVALID",
-      `The article bundle references more than ${MAX_STAGING_ASSETS} local images.`,
+      `The article bundle references more than ${MAX_STAGING_ASSETS} local assets.`,
     );
   }
   const assetNames = [...new Set([`${slug}-cover.png`, ...referencedAssetNames])];
@@ -306,39 +294,10 @@ function collectLocalAssetNames(article, slug) {
   if (identities.size !== assetNames.length) {
     fail(
       "STAGING_BUNDLE_INVALID",
-      "Local image filenames must be unique without case distinctions.",
+      "Local asset filenames must be unique without case distinctions.",
     );
   }
   return assetNames.sort();
-}
-
-function hasImageSignature(bytes, extension) {
-  if (extension === ".png") {
-    return bytes.subarray(0, PNG_SIGNATURE.length).equals(PNG_SIGNATURE);
-  }
-  if (extension === ".jpg" || extension === ".jpeg") {
-    return (
-      bytes.length >= 3 &&
-      bytes[0] === 0xff &&
-      bytes[1] === 0xd8 &&
-      bytes[2] === 0xff
-    );
-  }
-  if (extension === ".gif") {
-    const signature = bytes.subarray(0, 6).toString("ascii");
-    return signature === "GIF87a" || signature === "GIF89a";
-  }
-  if (extension === ".webp") {
-    return (
-      bytes.subarray(0, 4).toString("ascii") === "RIFF" &&
-      bytes.subarray(8, 12).toString("ascii") === "WEBP"
-    );
-  }
-  if (extension === ".avif") {
-    const box = bytes.subarray(0, 32).toString("ascii");
-    return box.slice(4, 8) === "ftyp" && /avif|avis/u.test(box.slice(8));
-  }
-  return false;
 }
 
 async function readCompleteBundle(bundle, slug) {
@@ -358,21 +317,28 @@ async function readCompleteBundle(bundle, slug) {
   const assetNames = collectLocalAssetNames(article, slug);
   const assetEntries = await Promise.all(
     assetNames.map(async (filename) => {
+      const definition = assetDefinitionForFilename(filename);
+      if (!definition) {
+        fail(
+          "STAGING_BUNDLE_INVALID",
+          `The staged asset has an unsupported extension: ${filename}.`,
+        );
+      }
       const bytes = await readStableStagingFile(
         path.join(path.dirname(bundle.paths.coverPath), filename),
         {
-          label: `image asset ${filename}`,
-          maxBytes: MAX_STAGING_COVER_BYTES,
-          limitDescription: "20 MiB",
+          label: `${definition.kind} asset ${filename}`,
+          maxBytes: definition.maxBytes,
+          limitDescription: `${definition.maxBytes / (1024 * 1024)} MiB`,
         },
       );
-      if (!hasImageSignature(bytes, path.extname(filename).toLowerCase())) {
+      if (!hasAssetSignature(bytes, definition)) {
         if (filename === `${slug}-cover.png`) {
           fail("STAGING_BUNDLE_INVALID", "The staged cover must be a PNG image.");
         }
         fail(
           "STAGING_BUNDLE_INVALID",
-          `The staged image bytes do not match the extension: ${filename}.`,
+          `The staged asset bytes do not match the extension: ${filename}.`,
         );
       }
       return [filename, bytes];
@@ -385,7 +351,7 @@ async function readCompleteBundle(bundle, slug) {
   if (totalAssetBytes > MAX_STAGING_ASSET_TOTAL_BYTES) {
     fail(
       "STAGING_BUNDLE_INVALID",
-      "The staged image assets exceed the 256 MiB total limit.",
+      "The staged assets exceed the 256 MiB total limit.",
     );
   }
 
@@ -784,12 +750,13 @@ async function assertCommitReady(stagingBundle, slug) {
     "2 MiB",
   );
   for (const [filename, bytes] of snapshot.assetEntries) {
+    const definition = assetDefinitionForFilename(filename);
     addValidatedSource(
       path.join(path.dirname(stagingBundle.coverPath), filename),
       bytes,
-      `image asset ${filename}`,
-      MAX_STAGING_COVER_BYTES,
-      "20 MiB",
+      `${definition.kind} asset ${filename}`,
+      definition.maxBytes,
+      `${definition.maxBytes / (1024 * 1024)} MiB`,
     );
   }
 
@@ -901,7 +868,7 @@ async function assertExclusiveAssetOwnership(workspace, slug, candidateNames) {
     if (conflict) {
       fail(
         "ASSET_OWNERSHIP_CONFLICT",
-        `The image asset ${conflict} is also owned by another local article.`,
+        `The asset ${conflict} is also owned by another local article.`,
       );
     }
   }

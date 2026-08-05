@@ -74,6 +74,9 @@ test('publish creates with one dry-run and one final POST from one timestamped s
     ACCEPTED_PREVIEW_REVISION,
   )
   assert.equal(result.operation, 'created')
+  assert.equal(result.template, 'default')
+  assert.equal(result.localAssetCount, 0)
+  assert.deepEqual(result.assetCounts, {image: 0, video: 0, attachment: 0})
   assert.equal(result.recordPath, 'C:\\records\\example-post.json')
   assert.equal(setup.calls.length, 2)
   assert.deepEqual(setup.calls.map((call) => call.options.method), ['POST', 'POST'])
@@ -310,6 +313,48 @@ test('target and document-id mismatches block records and are never retried', as
   )
   assert.equal(idSetup.calls.length, 2)
   assert.equal(idSetup.records.length, 0)
+})
+
+test('accepts unique supported image and file upload IDs and rejects duplicates', async (t) => {
+  const fixture = await createArticleFixture()
+  t.after(() => rm(fixture.workspaceRoot, {recursive: true, force: true}))
+  const accepted = serviceFor(fixture, {
+    responses: [
+      responsePayload({
+        mode: 'create',
+        uploadedAssetIds: [
+          'image-uploaded-1200x630-png',
+          'file-uploaded-mp4',
+          'file-guide-pdf',
+        ],
+      }),
+    ],
+  })
+  const result = await accepted.service.probePublish(
+    fixture.articlePath,
+    ACCEPTED_PREVIEW_REVISION,
+  )
+  assert.deepEqual(result.uploadedAssetIds, [
+    'image-uploaded-1200x630-png',
+    'file-uploaded-mp4',
+    'file-guide-pdf',
+  ])
+
+  const duplicate = serviceFor(fixture, {
+    responses: [
+      responsePayload({
+        mode: 'create',
+        uploadedAssetIds: ['file-uploaded-mp4', 'file-uploaded-mp4'],
+      }),
+    ],
+  })
+  await assert.rejects(
+    duplicate.service.probePublish(
+      fixture.articlePath,
+      ACCEPTED_PREVIEW_REVISION,
+    ),
+    (error) => error.code === 'API_RESPONSE_INVALID',
+  )
 })
 
 test('timeouts, rate limits, and final network uncertainty have zero automatic retries', async (t) => {

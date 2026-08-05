@@ -4,11 +4,11 @@ import {
   REQUEST_TIMEOUT_MS,
   materializeArticleRequest,
 } from './article.mjs'
+import {SAFE_UPLOADED_ASSET_ID} from './blog-assets.mjs'
 
 const SAFE_REQUEST_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/u
 const SAFE_ERROR_CODE = /^[A-Z][A-Z0-9_]{0,127}$/u
 const SAFE_RESULT_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/u
-const SAFE_ASSET_ID = /^image-[A-Za-z0-9]+-[0-9]+x[0-9]+-[A-Za-z0-9]+$/u
 
 export class PublisherApiError extends Error {
   constructor({
@@ -56,10 +56,11 @@ function validUploadedAssetIds(value, token) {
   return (
     Array.isArray(value) &&
     value.length <= MAX_ASSETS &&
+    new Set(value).size === value.length &&
     value.every(
       (assetId) =>
         typeof assetId === 'string' &&
-        SAFE_ASSET_ID.test(assetId) &&
+        SAFE_UPLOADED_ASSET_ID.test(assetId) &&
         doesNotContainSecret(assetId, token),
     )
   )
@@ -68,14 +69,22 @@ function validUploadedAssetIds(value, token) {
 function safeUploadedAssetIds(payload, token) {
   const candidate = payload?.error?.details?.uploadedAssetIds
   if (!Array.isArray(candidate)) return []
-  return candidate
-    .filter(
-      (assetId) =>
-        typeof assetId === 'string' &&
-        SAFE_ASSET_ID.test(assetId) &&
-        doesNotContainSecret(assetId, token),
-    )
-    .slice(0, MAX_ASSETS)
+  const safe = []
+  const seen = new Set()
+  for (const assetId of candidate) {
+    if (
+      typeof assetId !== 'string' ||
+      !SAFE_UPLOADED_ASSET_ID.test(assetId) ||
+      !doesNotContainSecret(assetId, token) ||
+      seen.has(assetId)
+    ) {
+      continue
+    }
+    seen.add(assetId)
+    safe.push(assetId)
+    if (safe.length === MAX_ASSETS) break
+  }
+  return safe
 }
 
 function safeErrorCode(value, token) {

@@ -1,6 +1,6 @@
 {
   "name": "sanityblog",
-  "version": "0.2.0+codex.20260804203900",
+  "version": "0.2.0+codex.20260805144102",
   "description": "Safely preview, publish, and update seven Sanity content types through 21 explicit skills and a local stdio MCP server.",
   "author": {
     "name": "Local developer"
@@ -24,7 +24,7 @@
   "interface": {
     "displayName": "Sanity Blog & Content",
     "shortDescription": "Preview and publish Sanity content safely",
-    "longDescription": "Twenty-one type-specific workflows for locally previewing, publishing, and updating bilingual legacy blog posts and API 1.1 rich content through a local MCP server, with safe HTML rendering, durable receipts, and partial-success handling.",
+    "longDescription": "Twenty-one type-specific workflows for locally previewing, publishing, and updating bilingual template-aware blog posts and API 1.1 rich content through a local MCP server, with mixed-asset validation, safe HTML rendering, durable receipts, and partial-success handling.",
     "category": "Productivity",
     "developerName": "Local developer",
     "capabilities": [

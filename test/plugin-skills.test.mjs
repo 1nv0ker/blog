@@ -217,6 +217,8 @@ test('legacy blog skills generate complete SEO and gate optional AI body images'
       assert.match(skill, /localized alt/iu)
       assert.match(skill, /fabricated data charts/iu)
       assert.match(skill, /misleading UI screenshots/iu)
+      assert.match(skill, /\.\.\/\.\.\/references\/blog-post-templates\.md/u)
+      assert.match(skill, /template/iu)
       assert.doesNotMatch(skill, /only the supported `seo\.title` and `seo\.description`/iu)
       assert.doesNotMatch(skill, /Do not (?:create|add) `?keywords/iu)
       assert.doesNotMatch(skill, /Every body `image` item must (?:preserve or )?use an existing Sanity `assetRef`/iu)
@@ -235,6 +237,42 @@ test('legacy blog skills generate complete SEO and gate optional AI body images'
   assert.match(update, /possibly remote-only value/iu)
   assert.match(update, /Preserve valid `seo\.keywords`/u)
   assert.match(update, /Keep every existing local image or `assetRef`/u)
+})
+
+test('Blog Post template reference defines selection, structured media, and safe video fallback', async () => {
+  const reference = await text('references/blog-post-templates.md')
+  for (const template of [
+    'default',
+    'productExplainer',
+    'alternatingContent',
+    'alternative',
+    'tutorial',
+    'solution',
+    'faq',
+    'caseStudy',
+  ]) {
+    assert.ok(reference.includes(`\`${template}\``))
+  }
+  for (const moduleType of [
+    'video',
+    'attachment',
+    'callout',
+    'table',
+    'mediaText',
+    'faqSection',
+    'tutorialSteps',
+    'cta',
+  ]) {
+    assert.ok(reference.includes(`\`${moduleType}\``))
+  }
+  assert.match(reference, /reader's primary job/iu)
+  assert.match(reference, /Omission preserves/iu)
+  assert.match(reference, /16:9 MP4\/WebM/iu)
+  assert.match(reference, /fixed provider or API key/iu)
+  assert.match(reference, /video is optional and no capability exists/iu)
+  assert.match(reference, /Never fabricate customer names/iu)
+  assert.match(reference, /no autoplay/iu)
+  assert.match(reference, /safe link rather than an iframe/iu)
 })
 
 test('skills inventory contains exactly seven types with three dedicated workflows', async () => {

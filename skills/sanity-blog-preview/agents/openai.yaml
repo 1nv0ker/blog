@@ -1,6 +1,6 @@
 interface:
   display_name: "Sanity Blog Preview"
-  short_description: "Preview a blog with full SEO and optional AI images"
-  default_prompt: "Use $sanity-blog-preview to draft, validate, and visually preview a bilingual blog post with complete SEO and only the body images its content needs."
+  short_description: "Preview templated blog layouts and rich media"
+  default_prompt: "Use $sanity-blog-preview to select a template, draft structured bilingual content and warranted media, and render a safe local preview."
 policy:
   allow_implicit_invocation: false

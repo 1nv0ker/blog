@@ -1,11 +1,11 @@
 ---
 name: sanity-blog-update
-description: Research, revise, validate, probe, and update one existing legacy blog-post document with bilingual English and Chinese content, complete SEO, a compliant PNG cover, and optional AI-generated body images through the bundled sanityblog MCP server. Use only when the user explicitly asks to change an identified existing blog-post and accepts a remote write; do not use for blog-en or another rich content type, and never create a missing post.
+description: Research, revise or explicitly switch templates, validate, preview, probe, and update one existing bilingual blog-post with complete SEO, structured modules, and warranted image, video, or attachment assets through the bundled sanityblog MCP server. Use only when the user explicitly asks to change an identified existing blog-post and accepts a remote write; do not use for blog-en or another content type, and never create a missing post.
 ---
 
 # Sanity Blog Update
 
-Update one existing legacy `blog-post` through the bundled local MCP server. Treat the final update call as an external write. Preserve the existing remote identity and keep the staged files and safe receipt as the source of truth for the attempt.
+Update one existing template-aware `blog-post` through the bundled local MCP server. Treat the final update call as an external write. Preserve the existing remote identity and keep the staged files and safe receipt as the source of truth for the attempt.
 
 ## Required MCP tools
 
@@ -56,11 +56,13 @@ Record for each used source: title, canonical URL, publisher or author, publicat
 
 ## Article requirements
 
-Maintain a complete bundle at the exact staging paths returned by preparation. The bilingual Markdown, strict article JSON, and real PNG cover are mandatory; every optional local body-image file must be referenced by the article and stored beside the cover. Never validate or update a partial or unreferenced bundle.
+Maintain a complete bundle at the exact staging paths returned by preparation. The bilingual Markdown, strict article JSON, and real PNG cover are mandatory; every optional local image, video, and attachment must be referenced by the article and stored beside the cover. Never validate or update a partial or unreferenced bundle.
+
+Read [the Blog Post template and module contract](../../references/blog-post-templates.md) completely before editing the template or structured modules. Preserve an omitted `template`, including a possibly remote-only value. Switch templates only when the user explicitly requests it, make both locales satisfy the new template, and write `"template": "default"` only for an explicit reset.
 
 - Write the complete revised English and Chinese Markdown source at `markdownPath`.
 - Explicitly update the strict article object at `articlePath`; do not expect the server to convert Markdown for you.
-- Convert both language bodies into valid `body.en` and `body.zh` Portable Text arrays using only supported `block`, `image`, and `code` items. Put links in safe `link` `markDefs` and make span marks reference their keys.
+- Convert both language bodies into valid `body.en` and `body.zh` arrays using the supported text, image, code, video, attachment, callout, table, media-text, FAQ, tutorial, and CTA items from the shared contract. Put links in safe `link` `markDefs` and make span marks reference their keys.
 - Maintain localized `{en, zh}` values for `title`, `excerpt`, `seo.title`, and `seo.description`.
 - Set `coverImage.source.path` to `./assets/<slug>-cover.png` and provide non-blank `coverImage.alt.en` and `coverImage.alt.zh`.
 - Preserve a relevant existing body image whether it uses a Sanity `assetRef` or validated local `source.path`. Put newly generated images beside `coverPath`, use `<slug>-<semantic-name>.png`, and reference them only as `./assets/<filename>`. Never use absolute, nested, traversal, URL, or unreferenced local paths.
@@ -131,11 +133,11 @@ If no valid staged cover exists and no image-generation capability is available,
 
 ## Local preview gate
 
-After local validation and before the PUT dry-run, call `sanity_blog_preview({articlePath})`. It writes a safe `<slug>.preview.html` beside the staged JSON, renders the validated JSON payload, complete SEO, and a separate safe Markdown view, embeds every validated local-image byte instead of retaining source-file references, and makes zero remote requests. An existing HTML preview therefore cannot drift if any source image changes later; regenerating it reads the new bytes and changes `previewRevision`.
+After local validation and before the PUT dry-run, call `sanity_blog_preview({articlePath})`. It writes a safe `<slug>.preview.html` beside the staged JSON, renders the selected template, structured payload, complete SEO, and a separate safe Markdown view, and embeds validated local image/video bytes without retaining source-file references. External video remains a safe link and attachments remain metadata-only. The tool makes zero remote requests.
 
 Open the returned `previewUrl` with an available browser or visual inspection capability. Inspect English, Chinese, the embedded cover and body images, remote `assetRef` placeholders, links, code blocks, source sections, keywords, canonical status, Open Graph, robots, and sitemap. Review the separately produced field-level change summary alongside the HTML preview when comparing the existing and revised intent. If no browser capability is available, provide the exact `previewPath` and state that the file was generated but not visually inspected.
 
-Let the user request edits before probing. After every edit, validate and preview again. Do not call `sanity_blog_probe_update` until the user accepts the current visual preview. Capture the exact accepted `previewRevision`, which binds the JSON, Markdown, and every validated local-image byte. Publishing uses the article JSON payload, so resolve any visible Markdown/JSON mismatch before probing.
+Let the user request edits before probing. After every edit, validate and preview again. Do not call `sanity_blog_probe_update` until the user accepts the current visual preview. Capture the exact accepted `previewRevision`, which binds the normalized JSON, Markdown, and every validated local asset byte. Publishing uses the article JSON payload, so resolve any visible Markdown/JSON mismatch before probing.
 
 ## Strict workflow
 
@@ -143,7 +145,7 @@ Let the user request edits before probing. After every edit, validate and previe
 2. Call `sanity_blog_check_config({})`. If it returns `CONFIG_NOT_FOUND`, `INVALID_CONFIG`, or `LEGACY_CONFIG_REQUIRES_REINIT`, call `sanity_blog_start_config_setup({})` once. On Windows it opens a separate interactive PowerShell; on other platforms present the returned manual command. Tell the user that setup asks for four fields, that the token is entered only in the terminal, and stop this attempt until the user completes setup. For every other configuration error, stop without launching setup. After a successful check, capture the safe `publisherApiOrigin` and Sanity target for later confirmation; never inspect the token.
 3. Call `sanity_blog_prepare_update({slug})` once. Preparation confirms only that the complete local article bundle exists and copies it into staging; it does not prove that a remote article exists. Stop if the local bundle is missing or incomplete. Capture `articlePath`, `markdownPath`, `coverPath`, canonical slug, and `reservationId`.
 4. Compare the current staged article with the user's request. Research every changed or newly introduced factual claim under the source-trust rules.
-5. Write and fact-check the complete revised English and Chinese body first. Then audit complete SEO under its preserve/omission rules, apply the body-image gate, save any approved new images beside `coverPath`, remove only obsolete slug-owned image references, and keep Markdown and Portable Text aligned. End both bodies with linked source sections.
+5. Preserve the existing template unless the user explicitly switches it. Plan any affected modules in both locales, write and fact-check the complete revised bodies, audit SEO under its preserve/omission rules, apply the media information-gain and body-image gates, save approved assets beside `coverPath`, remove only obsolete slug-owned references, and keep Markdown and structured JSON aligned. End both bodies with linked source sections.
 6. Validate the existing cover or generate/obtain a compliant PNG at the returned `coverPath`. Keep a valid existing Open Graph image, or reuse the resulting cover when an Open Graph refresh is justified. Stop if the cover gate cannot be satisfied.
 7. Produce a concise field-level change summary. If the result changes identity, slug, target, or unrelated content beyond the user's request, stop and obtain approval before continuing.
 8. Call `sanity_blog_validate({articlePath})`. Fix only staged content and validate again until it succeeds. Do not preview or probe while validation fails.

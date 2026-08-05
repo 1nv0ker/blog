@@ -28,6 +28,13 @@ const PNG_1X1 = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
   "base64",
 );
+const MP4_BYTES = Buffer.from([
+  0x00, 0x00, 0x00, 0x18,
+  0x66, 0x74, 0x79, 0x70,
+  0x69, 0x73, 0x6f, 0x6d,
+  0x00, 0x00, 0x00, 0x00,
+]);
+const PDF_BYTES = Buffer.from("%PDF-1.7\n%%EOF\n", "ascii");
 const TWO_MIB = 2 * 1024 * 1024;
 const TWENTY_MIB = 20 * 1024 * 1024;
 
@@ -431,6 +438,77 @@ test("prepare update snapshots each referenced local image once and preserves it
     reservationId: prepared.reservationId,
     config,
   });
+});
+
+test("prepare and commit recursively preserve referenced image, video, and attachment assets", async () => {
+  const config = await makeWorkspace();
+  const slug = "mixed-workspace-assets";
+  const paths = livePaths(config, slug);
+  const video = `${slug}-demo.mp4`;
+  const sharedImage = `${slug}-shared.png`;
+  const attachment = `${slug}-guide.pdf`;
+  const block = (text) => ({
+    _type: "block",
+    children: [{ _type: "span", text }],
+  });
+  const article = {
+    slug,
+    title: "Mixed assets",
+    coverImage: {
+      source: { path: `./assets/${slug}-cover.png` },
+      alt: { en: "Cover", zh: "封面" },
+    },
+    body: {
+      en: [
+        {
+          _type: "video",
+          sourceType: "upload",
+          source: { path: `./assets/${video}` },
+          poster: {
+            source: { path: `./assets/${sharedImage}` },
+            alt: "Poster",
+          },
+        },
+        {
+          _type: "attachment",
+          source: { path: `./assets/${attachment}` },
+        },
+        {
+          _type: "tutorialSteps",
+          steps: [
+            {
+              image: {
+                source: { path: `./assets/${sharedImage}` },
+                alt: "Step",
+              },
+              body: [block("Step body")],
+            },
+          ],
+        },
+      ],
+      zh: [],
+    },
+  };
+  await writeArticleAndAssets(paths, slug, article, {
+    assets: {
+      [video]: MP4_BYTES,
+      [sharedImage]: PNG_1X1,
+      [attachment]: PDF_BYTES,
+    },
+  });
+
+  const prepared = await prepareUpdate({ slug, config });
+  assert.deepEqual(await readFile(assetPath(prepared, video)), MP4_BYTES);
+  assert.deepEqual(await readFile(assetPath(prepared, sharedImage)), PNG_1X1);
+  assert.deepEqual(await readFile(assetPath(prepared, attachment)), PDF_BYTES);
+
+  const committed = await commitReservation({
+    slug,
+    reservationId: prepared.reservationId,
+    config,
+  });
+  assert.deepEqual(await readFile(assetPath(committed, video)), MP4_BYTES);
+  assert.deepEqual(await readFile(assetPath(committed, attachment)), PDF_BYTES);
 });
 
 test("a referenced image byte change invalidates the reserved baseline", async () => {

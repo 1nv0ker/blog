@@ -1,10 +1,82 @@
 import assert from 'node:assert/strict'
 import {mkdir, readFile, rm, writeFile} from 'node:fs/promises'
+import path from 'node:path'
 import test from 'node:test'
 
 import {prepareArticleSnapshot} from '../src/article.mjs'
 import {renderArticlePreview} from '../src/preview.mjs'
-import {PNG_BYTES, createArticleFixture, makeArticle} from './helpers.mjs'
+import {
+  MP4_BYTES,
+  PDF_BYTES,
+  PNG_BYTES,
+  createArticleFixture,
+  makeArticle,
+} from './helpers.mjs'
+
+const nestedBlock = (text) => ({
+  _type: 'block',
+  children: [{_type: 'span', text}],
+})
+
+const previewCta = () => ({
+  _type: 'cta',
+  heading: 'Continue',
+  primaryAction: {label: 'Start', href: '/start'},
+})
+
+const previewMediaText = (assetRef = 'image-template-1600x900-png') => ({
+  _type: 'mediaText',
+  heading: 'Feature',
+  body: [nestedBlock('Feature explanation.')],
+  image: {source: {assetRef}, alt: 'Feature diagram'},
+})
+
+const previewFaq = () => ({
+  _type: 'faqSection',
+  heading: 'Questions',
+  items: [{question: 'Why?', answer: [nestedBlock('Because it is useful.')]}],
+})
+
+function withPreviewTemplate(article, template) {
+  const body = {
+    default: [nestedBlock('Editorial body.')],
+    productExplainer: [previewMediaText(), previewFaq(), previewCta()],
+    alternatingContent: [
+      previewMediaText('image-templateone-1600x900-png'),
+      previewMediaText('image-templatetwo-1600x900-png'),
+      previewCta(),
+    ],
+    alternative: [
+      {
+        _type: 'table',
+        rows: [
+          {cells: [{value: [nestedBlock('Option')]}, {value: [nestedBlock('Fit')]}]},
+        ],
+      },
+      previewFaq(),
+      previewCta(),
+    ],
+    tutorial: [
+      {
+        _type: 'tutorialSteps',
+        heading: 'Steps',
+        steps: [
+          {title: 'First', body: [nestedBlock('Do this.')]},
+          {title: 'Second', body: [{_type: 'code', code: 'npm test'}]},
+        ],
+      },
+      previewFaq(),
+      previewCta(),
+    ],
+    solution: [previewMediaText(), previewCta()],
+    faq: [previewFaq(), previewCta()],
+    caseStudy: [previewMediaText(), previewCta()],
+  }[template]
+  article.template = template
+  article.body.en = structuredClone(body)
+  article.body.zh = structuredClone(body)
+  return article
+}
 
 test('renders validated JSON and sibling Markdown into one safe local HTML preview', async (t) => {
   const article = makeArticle('example-post', {localCover: true})
@@ -259,7 +331,7 @@ test('renders full SEO and only validated local images from JSON and Markdown', 
   assert.doesNotMatch(html, /seo-image-post-unreferenced\.png/u)
   assert.match(
     html,
-    /Content-Security-Policy" content="default-src 'none'; img-src data: blob:; script-src 'nonce-[0-9a-f]{32}';/u,
+    /Content-Security-Policy" content="default-src 'none'; img-src data: blob:; media-src blob:; script-src 'nonce-[0-9a-f]{32}';/u,
   )
 
   await writeFile(
@@ -319,4 +391,111 @@ test('shows publisher-derived canonical status and remote Open Graph placeholder
   assert.match(html, /noindex, follow \(publisher default\)/u)
   assert.match(html, /Included \(publisher default\)/u)
   assert.doesNotMatch(html, /image-ogasset-1200x630-png/u)
+})
+
+test('renders production-like hero and module structures for all Blog Post templates', async (t) => {
+  const expectations = {
+    default: ['data-blog-template="default"', 'hero--default'],
+    productExplainer: [
+      'template-hero--split',
+      'class="media-text',
+      'class="faq-section',
+      'container-type: inline-size',
+      '@container (max-width: 620px)',
+    ],
+    alternatingContent: ['template-hero--split', 'media-text--right', 'media-text--left'],
+    alternative: ['template-hero--compact', 'class="table-scroll"', 'class="faq-section'],
+    tutorial: ['template-hero--compact', 'class="tutorial-nav"', 'class="tutorial-step"'],
+    solution: ['template-hero--split', 'class="media-text', 'class="cta-card'],
+    faq: ['template-hero--compact', '<details>', 'class="cta-card'],
+    caseStudy: ['template-hero--editorial', 'class="media-text', 'class="cta-card'],
+  }
+
+  for (const [template, markers] of Object.entries(expectations)) {
+    const slug = `preview-${template.toLowerCase()}`
+    const article = withPreviewTemplate(makeArticle(slug), template)
+    const fixture = await createArticleFixture({slug, article})
+    t.after(() => rm(fixture.workspaceRoot, {recursive: true, force: true}))
+    await writeFile(
+      fixture.articlePath.replace(/\.json$/u, '.md'),
+      '# English\n\nPreview.\n\n# 中文\n\n预览。\n',
+      'utf8',
+    )
+    const snapshot = await prepareArticleSnapshot(fixture.articlePath, {
+      config: fixture.config,
+    })
+    const result = await renderArticlePreview(snapshot)
+    const html = await readFile(result.previewPath, 'utf8')
+    assert.equal(result.template, template)
+    assert.match(html, new RegExp(`data-blog-template="${template}"`, 'u'))
+    for (const marker of markers) {
+      assert.ok(html.includes(marker), `${template} preview is missing ${marker}`)
+    }
+  }
+})
+
+test('plays validated local video, links external video, and keeps attachments metadata-only', async (t) => {
+  const article = makeArticle('preview-mixed-media', {localCover: true})
+  const modules = [
+    {
+      _type: 'video',
+      sourceType: 'upload',
+      source: {path: './assets/preview-mixed-media-demo.mp4'},
+      title: 'Validated demo',
+      poster: {
+        source: {path: './assets/preview-mixed-media-poster.png'},
+        alt: 'Demo poster',
+      },
+    },
+    {
+      _type: 'video',
+      sourceType: 'external',
+      url: 'https://www.youtube.com/watch?v=example',
+      title: 'External demo',
+    },
+    {
+      _type: 'attachment',
+      source: {path: './assets/preview-mixed-media-guide.pdf'},
+      title: 'Downloadable guide',
+    },
+  ]
+  article.body.en = structuredClone(modules)
+  article.body.zh = structuredClone(modules)
+  const fixture = await createArticleFixture({
+    slug: article.slug,
+    article,
+    localCover: true,
+  })
+  t.after(() => rm(fixture.workspaceRoot, {recursive: true, force: true}))
+  await writeFile(path.join(fixture.assetsRoot, 'preview-mixed-media-demo.mp4'), MP4_BYTES)
+  await writeFile(path.join(fixture.assetsRoot, 'preview-mixed-media-poster.png'), PNG_BYTES)
+  await writeFile(path.join(fixture.assetsRoot, 'preview-mixed-media-guide.pdf'), PDF_BYTES)
+  await writeFile(
+    fixture.articlePath.replace(/\.json$/u, '.md'),
+    '# English\n\nMedia preview.\n\n# 中文\n\n媒体预览。\n',
+    'utf8',
+  )
+
+  const snapshot = await prepareArticleSnapshot(fixture.articlePath, {
+    config: fixture.config,
+  })
+  const result = await renderArticlePreview(snapshot)
+  const html = await readFile(result.previewPath, 'utf8')
+
+  assert.equal(result.localAssetCount, 4)
+  assert.deepEqual(result.assetCounts, {image: 2, video: 1, attachment: 1})
+  assert.match(
+    html,
+    /<video class="local-video" controls preload="metadata" playsinline data-preview-asset=/u,
+  )
+  assert.doesNotMatch(html, /<video[^>]+\sautoplay(?:\s|>)/u)
+  assert.match(html, /data-preview-mime="video\/mp4"/u)
+  assert.match(
+    html,
+    /href="https:\/\/www\.youtube\.com\/watch\?v=example"[^>]*>Open external video<\/a>/u,
+  )
+  assert.doesNotMatch(html, /<iframe/u)
+  assert.match(html, /Attachment · metadata only/u)
+  assert.match(html, /preview-mixed-media-guide\.pdf/u)
+  assert.doesNotMatch(html, new RegExp(PDF_BYTES.toString('base64'), 'u'))
 })

@@ -135,10 +135,16 @@ node src/cli.mjs --check
 | `alternative` | `sanity-content-alternative-preview` | `sanity-content-alternative-publish` | `sanity-content-alternative-update` |
 | `tutorial` | `sanity-content-tutorial-preview` | `sanity-content-tutorial-publish` | `sanity-content-tutorial-update` |
 
-三个旧 `blog-post` 技能会在正文定稿后生成双语完整 SEO，并按信息增益决定是否
-生成正文图：流程、架构、比较或复杂概念确实需要视觉解释时通常生成 1–3 张，
-否则生成 0 张。中英正文复用同一张语言中立图片并分别提供自然 alt；没有图片
-生成能力时继续无正文图版本，不会下载不明素材。封面仍保持原有强制校验。
+三个 `blog-post` 技能支持 `default`、`productExplainer`、
+`alternatingContent`、`alternative`、`tutorial`、`solution`、`faq` 和
+`caseStudy` 八种模板。新文章按读者任务自动选型；更新默认保留原模板，只有明确
+要求才切换。正文支持 text/image/code 以及 video、attachment、callout、table、
+mediaText、FAQ、教程步骤和 CTA。预览会还原模板 hero、内容宽度和模块布局，本地
+MP4/WebM 可控播放，外部视频仅显示安全链接。
+
+技能会在正文定稿后生成双语完整 SEO，并按信息增益决定是否生成正文图片或视频。
+中英正文复用语言中立媒体并分别提供自然 alt；没有可用生成能力时跳过可选媒体，
+不会下载不明素材。封面仍保持原有强制校验。
 完整 SEO 包括页面 title/description、每种语言 3–8 个自然关键词、Open Graph、
 robots 和 sitemap。canonical 默认省略，由发布器按站点 origin 与 slug 派生；
 显式提供时必须是同一站点 origin 下互不相同的完整中英文 URL。

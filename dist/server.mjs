@@ -3225,8 +3225,8 @@ var require_utils = __commonJS({
       }
       return ind;
     }
-    function removeDotSegments(path13) {
-      let input = path13;
+    function removeDotSegments(path14) {
+      let input = path14;
       const output = [];
       let nextSlash = -1;
       let len = 0;
@@ -3478,8 +3478,8 @@ var require_schemes = __commonJS({
         wsComponent.secure = void 0;
       }
       if (wsComponent.resourceName) {
-        const [path13, query] = wsComponent.resourceName.split("?");
-        wsComponent.path = path13 && path13 !== "/" ? path13 : void 0;
+        const [path14, query] = wsComponent.resourceName.split("?");
+        wsComponent.path = path14 && path14 !== "/" ? path14 : void 0;
         wsComponent.query = query;
         wsComponent.resourceName = void 0;
       }
@@ -6886,7 +6886,7 @@ var require_dist = __commonJS({
 });
 
 // src/server.mjs
-import path12 from "node:path";
+import path13 from "node:path";
 import { fileURLToPath as fileURLToPath2 } from "node:url";
 
 // node_modules/zod/v3/external.js
@@ -7367,8 +7367,8 @@ function getErrorMap() {
 
 // node_modules/zod/v3/helpers/parseUtil.js
 var makeIssue = (params) => {
-  const { data, path: path13, errorMaps, issueData } = params;
-  const fullPath = [...path13, ...issueData.path || []];
+  const { data, path: path14, errorMaps, issueData } = params;
+  const fullPath = [...path14, ...issueData.path || []];
   const fullIssue = {
     ...issueData,
     path: fullPath
@@ -7484,11 +7484,11 @@ var errorUtil;
 
 // node_modules/zod/v3/types.js
 var ParseInputLazyPath = class {
-  constructor(parent, value, path13, key) {
+  constructor(parent, value, path14, key) {
     this._cachedPath = [];
     this.parent = parent;
     this.data = value;
-    this._path = path13;
+    this._path = path14;
     this._key = key;
   }
   get path() {
@@ -11126,10 +11126,10 @@ function assignProp(target, prop, value) {
     configurable: true
   });
 }
-function getElementAtPath(obj, path13) {
-  if (!path13)
+function getElementAtPath(obj, path14) {
+  if (!path14)
     return obj;
-  return path13.reduce((acc, key) => acc?.[key], obj);
+  return path14.reduce((acc, key) => acc?.[key], obj);
 }
 function promiseAllObject(promisesObj) {
   const keys = Object.keys(promisesObj);
@@ -11449,11 +11449,11 @@ function aborted(x, startIndex = 0) {
   }
   return false;
 }
-function prefixIssues(path13, issues) {
+function prefixIssues(path14, issues) {
   return issues.map((iss) => {
     var _a;
     (_a = iss).path ?? (_a.path = []);
-    iss.path.unshift(path13);
+    iss.path.unshift(path14);
     return iss;
   });
 }
@@ -21141,10 +21141,10 @@ function sanitizeIssues(value) {
       continue;
     }
     const issue2 = {};
-    const path13 = cleanOptionalString(entry.path, 512);
+    const path14 = cleanOptionalString(entry.path, 512);
     const code = cleanOptionalString(entry.code, 96);
     const message = cleanOptionalString(entry.message, 512);
-    if (path13 !== void 0) issue2.path = path13;
+    if (path14 !== void 0) issue2.path = path14;
     if (code !== void 0) issue2.code = code;
     if (message !== void 0) issue2.message = message;
     if (Object.keys(issue2).length > 0) issues.push(issue2);
@@ -22113,27 +22113,312 @@ function contentConfigurationSetupSummary(launchResult) {
 // src/article.mjs
 import { createHash } from "node:crypto";
 import { lstat as lstat2, readFile as readFile2, realpath } from "node:fs/promises";
+import path4 from "node:path";
+
+// src/blog-assets.mjs
 import path3 from "node:path";
+import { TextDecoder as TextDecoder2 } from "node:util";
+var MAX_IMAGE_BYTES = 20 * 1024 * 1024;
+var MAX_VIDEO_BYTES = 100 * 1024 * 1024;
+var MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024;
+var MAX_LOCAL_ASSETS = 10;
+var MAX_TOTAL_ASSET_BYTES = 256 * 1024 * 1024;
+var SAFE_LOCAL_ASSET_PATH = /^\.\/assets\/([A-Za-z0-9][A-Za-z0-9._-]{0,127})$/u;
+var SAFE_LEGACY_IMAGE_ASSET_REF = /^image-[A-Za-z0-9]+-[0-9]+x[0-9]+-[A-Za-z0-9]+$/u;
+var SAFE_IMAGE_ASSET_REF = /^image-[A-Za-z0-9]+-[0-9]+x[0-9]+-(?:jpg|jpeg|png|gif|webp|avif)$/iu;
+var SAFE_VIDEO_ASSET_REF = /^file-[A-Za-z0-9]+-(?:mp4|webm)$/iu;
+var SAFE_ATTACHMENT_ASSET_REF = /^file-[A-Za-z0-9]+-(?:pdf|txt|csv|docx|xlsx|pptx)$/iu;
+var SAFE_UPLOADED_ASSET_ID = /^(?:image-[A-Za-z0-9]+-[0-9]+x[0-9]+-[A-Za-z0-9]+|file-[A-Za-z0-9]+-(?:mp4|webm|pdf|txt|csv|docx|xlsx|pptx))$/iu;
+var FORMATS = /* @__PURE__ */ new Map([
+  [".avif", { kind: "image", format: "avif", mimeType: "image/avif" }],
+  [".gif", { kind: "image", format: "gif", mimeType: "image/gif" }],
+  [".jpeg", { kind: "image", format: "jpeg", mimeType: "image/jpeg" }],
+  [".jpg", { kind: "image", format: "jpeg", mimeType: "image/jpeg" }],
+  [".png", { kind: "image", format: "png", mimeType: "image/png" }],
+  [".webp", { kind: "image", format: "webp", mimeType: "image/webp" }],
+  [".mp4", { kind: "video", format: "mp4", mimeType: "video/mp4" }],
+  [".webm", { kind: "video", format: "webm", mimeType: "video/webm" }],
+  [".pdf", { kind: "attachment", format: "pdf", mimeType: "application/pdf" }],
+  [".txt", { kind: "attachment", format: "txt", mimeType: "text/plain" }],
+  [".csv", { kind: "attachment", format: "csv", mimeType: "text/csv" }],
+  [
+    ".docx",
+    {
+      kind: "attachment",
+      format: "docx",
+      mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    }
+  ],
+  [
+    ".xlsx",
+    {
+      kind: "attachment",
+      format: "xlsx",
+      mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    }
+  ],
+  [
+    ".pptx",
+    {
+      kind: "attachment",
+      format: "pptx",
+      mimeType: "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+    }
+  ]
+]);
+var LIMITS = Object.freeze({
+  image: MAX_IMAGE_BYTES,
+  video: MAX_VIDEO_BYTES,
+  attachment: MAX_ATTACHMENT_BYTES
+});
+function assetDefinitionForFilename(filename) {
+  const definition = FORMATS.get(path3.extname(filename).toLowerCase());
+  return definition ? Object.freeze({ ...definition, maxBytes: LIMITS[definition.kind] }) : void 0;
+}
+function isUtf8Text(bytes) {
+  if (bytes.includes(0)) return false;
+  try {
+    new TextDecoder2("utf-8", { fatal: true }).decode(bytes);
+    return true;
+  } catch {
+    return false;
+  }
+}
+function hasImageSignature(bytes, format) {
+  if (format === "png") {
+    return bytes.subarray(0, 8).equals(
+      Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])
+    );
+  }
+  if (format === "jpeg") {
+    return bytes.length >= 3 && bytes[0] === 255 && bytes[1] === 216 && bytes[2] === 255;
+  }
+  const ascii = bytes.subarray(0, 64).toString("ascii");
+  if (format === "gif") return ascii.startsWith("GIF87a") || ascii.startsWith("GIF89a");
+  if (format === "webp") return ascii.startsWith("RIFF") && ascii.slice(8, 12) === "WEBP";
+  if (format === "avif") {
+    return ascii.slice(4, 8) === "ftyp" && /avif|avis/u.test(ascii.slice(8));
+  }
+  return false;
+}
+function hasVideoSignature(bytes, format) {
+  if (format === "mp4") {
+    if (bytes.length < 12 || bytes.subarray(4, 8).toString("ascii") !== "ftyp") return false;
+    return (/* @__PURE__ */ new Set([
+      "isom",
+      "iso2",
+      "iso3",
+      "iso4",
+      "iso5",
+      "iso6",
+      "iso8",
+      "iso9",
+      "mp41",
+      "mp42",
+      "avc1",
+      "dash",
+      "MSNV"
+    ])).has(bytes.subarray(8, 12).toString("ascii"));
+  }
+  return format === "webm" && bytes.subarray(0, 4).equals(Buffer.from([26, 69, 223, 163])) && bytes.subarray(0, 4096).toString("latin1").toLowerCase().includes("webm");
+}
+function hasAttachmentSignature(bytes, format) {
+  if (format === "pdf") return bytes.subarray(0, 5).toString("ascii") === "%PDF-";
+  if (format === "txt" || format === "csv") return isUtf8Text(bytes);
+  const zipSignature = bytes.subarray(0, 4);
+  if (!zipSignature.equals(Buffer.from([80, 75, 3, 4])) && !zipSignature.equals(Buffer.from([80, 75, 5, 6]))) {
+    return false;
+  }
+  const archiveIndex = bytes.toString("latin1");
+  if (!archiveIndex.includes("[Content_Types].xml")) return false;
+  if (format === "docx") return archiveIndex.includes("word/");
+  if (format === "xlsx") return archiveIndex.includes("xl/");
+  if (format === "pptx") return archiveIndex.includes("ppt/");
+  return false;
+}
+function hasAssetSignature(bytes, definition) {
+  if (definition?.kind === "image") return hasImageSignature(bytes, definition.format);
+  if (definition?.kind === "video") return hasVideoSignature(bytes, definition.format);
+  if (definition?.kind === "attachment") {
+    return hasAttachmentSignature(bytes, definition.format);
+  }
+  return false;
+}
+function appendSource(values, kind, source, location) {
+  if (source && (typeof source.path === "string" || typeof source.assetRef === "string")) {
+    values.push({ kind, source, location });
+  }
+}
+function collectBlogAssetSources(article) {
+  const values = [];
+  appendSource(values, "image", article?.coverImage?.source, "coverImage.source");
+  for (const locale of ["en", "zh"]) {
+    for (const [index, item] of (article?.body?.[locale] ?? []).entries()) {
+      const location = `body.${locale}.${index}`;
+      if (item?._type === "image") {
+        appendSource(values, "image", item.source, `${location}.source`);
+      } else if (item?._type === "video") {
+        if (item.sourceType === "upload") {
+          appendSource(values, "video", item.source, `${location}.source`);
+        }
+        appendSource(values, "image", item.poster?.source, `${location}.poster.source`);
+      } else if (item?._type === "attachment") {
+        appendSource(values, "attachment", item.source, `${location}.source`);
+      } else if (item?._type === "mediaText") {
+        appendSource(values, "image", item.image?.source, `${location}.image.source`);
+      } else if (item?._type === "tutorialSteps") {
+        for (const [stepIndex, step] of (item.steps ?? []).entries()) {
+          appendSource(
+            values,
+            "image",
+            step?.image?.source,
+            `${location}.steps.${stepIndex}.image.source`
+          );
+        }
+      }
+    }
+  }
+  appendSource(
+    values,
+    "image",
+    article?.seo?.openGraph?.image?.source,
+    "seo.openGraph.image.source"
+  );
+  return values;
+}
+function countAssetsByKind(assets) {
+  const counts = { image: 0, video: 0, attachment: 0 };
+  for (const asset of assets) {
+    if (Object.hasOwn(counts, asset.kind)) counts[asset.kind] += 1;
+  }
+  return Object.freeze(counts);
+}
+
+// src/blog-templates.mjs
+var BLOG_TEMPLATE_IDS = Object.freeze([
+  "default",
+  "productExplainer",
+  "alternatingContent",
+  "alternative",
+  "tutorial",
+  "solution",
+  "faq",
+  "caseStudy"
+]);
+var BLOG_TEMPLATE_REQUIREMENTS = Object.freeze({
+  default: Object.freeze({}),
+  productExplainer: Object.freeze({ mediaText: 1, faqSection: 1, cta: 1 }),
+  alternatingContent: Object.freeze({ mediaText: 2, cta: 1 }),
+  alternative: Object.freeze({ table: 1, faqSection: 1, cta: 1 }),
+  tutorial: Object.freeze({ tutorialSteps: 1, faqSection: 1, cta: 1 }),
+  solution: Object.freeze({ mediaText: 1, cta: 1 }),
+  faq: Object.freeze({ faqSection: 1, cta: 1 }),
+  caseStudy: Object.freeze({ mediaText: 1, cta: 1 })
+});
+var BLOG_TEMPLATE_PRESETS = Object.freeze({
+  default: Object.freeze({
+    tone: "editorial",
+    mediaStyle: "contained",
+    heroVariant: "legacy",
+    contentWidth: "reading",
+    stepNavigation: false
+  }),
+  productExplainer: Object.freeze({
+    tone: "feature",
+    mediaStyle: "wide",
+    heroVariant: "split",
+    contentWidth: "wide",
+    stepNavigation: false
+  }),
+  alternatingContent: Object.freeze({
+    tone: "feature",
+    mediaStyle: "alternating",
+    heroVariant: "split",
+    contentWidth: "wide",
+    stepNavigation: false
+  }),
+  alternative: Object.freeze({
+    tone: "editorial",
+    mediaStyle: "wide",
+    heroVariant: "compact",
+    contentWidth: "wide",
+    stepNavigation: false
+  }),
+  tutorial: Object.freeze({
+    tone: "steps",
+    mediaStyle: "contained",
+    heroVariant: "compact",
+    contentWidth: "reading",
+    stepNavigation: true
+  }),
+  solution: Object.freeze({
+    tone: "feature",
+    mediaStyle: "contained",
+    heroVariant: "split",
+    contentWidth: "wide",
+    stepNavigation: false
+  }),
+  faq: Object.freeze({
+    tone: "answers",
+    mediaStyle: "contained",
+    heroVariant: "compact",
+    contentWidth: "reading",
+    stepNavigation: false
+  }),
+  caseStudy: Object.freeze({
+    tone: "proof",
+    mediaStyle: "wide",
+    heroVariant: "editorial",
+    contentWidth: "wide",
+    stepNavigation: false
+  })
+});
+function resolveBlogTemplate(template) {
+  return BLOG_TEMPLATE_IDS.includes(template) ? template : "default";
+}
+function getBlogTemplatePreset(template) {
+  return BLOG_TEMPLATE_PRESETS[resolveBlogTemplate(template)];
+}
+function validateBlogTemplate(article) {
+  const template = resolveBlogTemplate(article?.template);
+  const requirements = BLOG_TEMPLATE_REQUIREMENTS[template];
+  const issues = [];
+  for (const locale of ["en", "zh"]) {
+    const body = article?.body?.[locale] ?? [];
+    const counts = body.reduce((values, item) => {
+      values[item?._type] = (values[item?._type] ?? 0) + 1;
+      return values;
+    }, {});
+    for (const [blockType, minimum] of Object.entries(requirements)) {
+      if ((counts[blockType] ?? 0) >= minimum) continue;
+      issues.push({
+        path: ["body", locale],
+        message: `Template "${template}" requires at least ${minimum} ${blockType} block${minimum === 1 ? "" : "s"} in ${locale}.`
+      });
+    }
+    if (template === "tutorial") {
+      const stepCount = body.filter((item) => item?._type === "tutorialSteps").reduce((total, item) => total + item.steps.length, 0);
+      if (stepCount < 2) {
+        issues.push({
+          path: ["body", locale],
+          message: 'Template "tutorial" requires at least 2 tutorial steps in each locale.'
+        });
+      }
+    }
+  }
+  return issues;
+}
+
+// src/article.mjs
 var MAX_ARTICLE_BYTES = 2 * 1024 * 1024;
-var MAX_ASSET_BYTES = 20 * 1024 * 1024;
-var MAX_ASSETS = 10;
-var MAX_TOTAL_BYTES = 256 * 1024 * 1024;
+var MAX_ASSETS = MAX_LOCAL_ASSETS;
+var MAX_TOTAL_BYTES = MAX_TOTAL_ASSET_BYTES;
 var MAX_RESPONSE_BYTES = 1024 * 1024;
 var REQUEST_TIMEOUT_MS = 18e4;
 var SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/u;
-var SAFE_ASSET_PATH = /^\.\/assets\/[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u;
-var SAFE_ASSET_REF = /^image-[A-Za-z0-9]+-[0-9]+x[0-9]+-[A-Za-z0-9]+$/u;
-var SAFE_SUPPORTED_IMAGE_ASSET_REF = /^image-[A-Za-z0-9]+-[0-9]+x[0-9]+-(?:jpg|jpeg|png|gif|webp|avif)$/iu;
 var SAFE_KEY = /^[A-Za-z0-9_-]+$/u;
-var BUILTIN_MARKS = /* @__PURE__ */ new Set(["strong", "em", "code"]);
-var MIME_TYPES = /* @__PURE__ */ new Map([
-  [".avif", "image/avif"],
-  [".gif", "image/gif"],
-  [".jpeg", "image/jpeg"],
-  [".jpg", "image/jpeg"],
-  [".png", "image/png"],
-  [".webp", "image/webp"]
-]);
+var ROOT_MARKS = /* @__PURE__ */ new Set(["strong", "em", "code"]);
+var NESTED_MARKS = /* @__PURE__ */ new Set(["strong", "em", "underline", "strike-through", "code"]);
 var snapshotState = /* @__PURE__ */ new WeakMap();
 var ArticleValidationError = class extends Error {
   constructor(code, message, details) {
@@ -22164,22 +22449,37 @@ var localizedTrimmedString = (maxLength) => external_exports.object({
 }).strict();
 var portableTextKey = external_exports.string().min(1).max(128).regex(SAFE_KEY);
 function safeLinkHref(value) {
-  if (value.startsWith("/") && !value.startsWith("//")) return true;
-  if (value.startsWith("#") || value.startsWith("./") || value.startsWith("../")) return true;
+  if (/[\u0000-\u001f\u007f]/u.test(value)) return false;
+  if (value.startsWith("//") || value.startsWith("\\\\")) return false;
+  const scheme = /^([A-Za-z][A-Za-z0-9+.-]*):/u.exec(value);
+  if (!scheme) return true;
+  const protocol = scheme[1].toLowerCase();
+  if (!["http", "https", "mailto", "tel"].includes(protocol)) return false;
+  if (protocol === "mailto" || protocol === "tel") {
+    return value.slice(scheme[0].length).trim().length > 0;
+  }
   try {
     const url = new URL(value);
-    return ["http:", "https:", "mailto:", "tel:"].includes(url.protocol);
+    return url.protocol === `${protocol}:` && Boolean(url.hostname);
   } catch {
     return false;
   }
 }
 var legacyImageSource = external_exports.union([
-  external_exports.object({ path: external_exports.string().regex(SAFE_ASSET_PATH) }).strict(),
-  external_exports.object({ assetRef: external_exports.string().regex(SAFE_ASSET_REF) }).strict()
+  external_exports.object({ path: external_exports.string().regex(SAFE_LOCAL_ASSET_PATH) }).strict(),
+  external_exports.object({ assetRef: external_exports.string().regex(SAFE_LEGACY_IMAGE_ASSET_REF) }).strict()
 ]);
 var supportedImageSource = external_exports.union([
-  external_exports.object({ path: external_exports.string().regex(SAFE_ASSET_PATH) }).strict(),
-  external_exports.object({ assetRef: external_exports.string().regex(SAFE_SUPPORTED_IMAGE_ASSET_REF) }).strict()
+  external_exports.object({ path: external_exports.string().regex(SAFE_LOCAL_ASSET_PATH) }).strict(),
+  external_exports.object({ assetRef: external_exports.string().regex(SAFE_IMAGE_ASSET_REF) }).strict()
+]);
+var videoSource = external_exports.union([
+  external_exports.object({ path: external_exports.string().regex(SAFE_LOCAL_ASSET_PATH) }).strict(),
+  external_exports.object({ assetRef: external_exports.string().regex(SAFE_VIDEO_ASSET_REF) }).strict()
+]);
+var attachmentSource = external_exports.union([
+  external_exports.object({ path: external_exports.string().regex(SAFE_LOCAL_ASSET_PATH) }).strict(),
+  external_exports.object({ assetRef: external_exports.string().regex(SAFE_ATTACHMENT_ASSET_REF) }).strict()
 ]);
 var imageCrop = external_exports.object({
   _type: external_exports.literal("sanity.imageCrop").optional(),
@@ -22199,69 +22499,240 @@ var portableTextLink = external_exports.object({
   _type: external_exports.literal("link"),
   _key: portableTextKey.optional(),
   href: external_exports.string().min(1).max(2048).refine(safeLinkHref, "unsupported link protocol"),
-  openInNewTab: external_exports.boolean().optional()
+  openInNewTab: external_exports.boolean().default(true)
 }).strict();
 var portableTextSpan = external_exports.object({
   _type: external_exports.literal("span"),
   _key: portableTextKey.optional(),
   text: external_exports.string(),
-  marks: external_exports.array(external_exports.string().min(1).max(128)).optional()
+  marks: external_exports.array(external_exports.string().min(1).max(128)).default([])
 }).strict();
-var portableTextBlock = external_exports.object({
-  _type: external_exports.literal("block"),
-  _key: portableTextKey.optional(),
-  style: external_exports.enum(["normal", "h2", "h3", "blockquote"]).optional(),
-  listItem: external_exports.enum(["bullet", "number"]).optional(),
-  level: external_exports.number().int().min(1).max(10).optional(),
-  markDefs: external_exports.array(portableTextLink).optional(),
-  children: external_exports.array(portableTextSpan).min(1)
-}).strict().superRefine((block, context) => {
-  if (block.level !== void 0 && block.listItem === void 0) {
-    context.addIssue({
-      code: external_exports.ZodIssueCode.custom,
-      path: ["level"],
-      message: "level requires listItem"
-    });
-  }
-  const markKeys = new Set((block.markDefs ?? []).map((definition) => definition._key).filter(Boolean));
-  if (markKeys.size !== (block.markDefs ?? []).filter((definition) => definition._key).length) {
-    context.addIssue({
-      code: external_exports.ZodIssueCode.custom,
-      path: ["markDefs"],
-      message: "mark definition keys must be unique"
-    });
-  }
-  for (const [childIndex, child] of block.children.entries()) {
-    for (const mark of child.marks ?? []) {
-      if (!BUILTIN_MARKS.has(mark) && !markKeys.has(mark)) {
-        context.addIssue({
-          code: external_exports.ZodIssueCode.custom,
-          path: ["children", childIndex, "marks"],
-          message: "mark must be built-in or reference markDefs"
-        });
-      }
+function createBlockSchema(styles) {
+  return external_exports.object({
+    _type: external_exports.literal("block"),
+    _key: portableTextKey.optional(),
+    style: external_exports.enum(styles).default("normal"),
+    listItem: external_exports.enum(["bullet", "number"]).optional(),
+    level: external_exports.number().int().min(1).max(10).optional(),
+    markDefs: external_exports.array(portableTextLink).default([]),
+    children: external_exports.array(portableTextSpan).min(1)
+  }).strict().superRefine((block, context) => {
+    if (block.level !== void 0 && block.listItem === void 0) {
+      context.addIssue({
+        code: external_exports.ZodIssueCode.custom,
+        path: ["level"],
+        message: "level requires listItem"
+      });
     }
-  }
-});
+  });
+}
+var portableTextBlock = createBlockSchema(["normal", "h2", "h3", "blockquote"]);
+var nestedTextBlock = createBlockSchema(["normal"]);
+function hasMeaningfulNestedContent(items) {
+  return items.some((item) => {
+    if (item?._type === "code") return item.code.trim().length > 0;
+    return item?._type === "block" && item.children.some((span) => span.text.trim().length > 0);
+  });
+}
+function meaningfulContent(itemSchema, minimumMessage, contentMessage) {
+  return external_exports.array(itemSchema).min(1, minimumMessage).refine(hasMeaningfulNestedContent, contentMessage);
+}
 var portableTextImage = external_exports.object({
   _type: external_exports.literal("image"),
   _key: portableTextKey.optional(),
   source: legacyImageSource,
   alt: nonBlank(500),
+  caption: trimmedNonBlank(500).optional(),
   crop: imageCrop.optional(),
   hotspot: imageHotspot.optional()
 }).strict();
 var portableTextCode = external_exports.object({
   _type: external_exports.literal("code"),
   _key: portableTextKey.optional(),
-  language: nonBlank(64).optional(),
+  language: nonBlank(64).default("javascript"),
   code: external_exports.string(),
   highlightedLines: external_exports.array(external_exports.number().int().min(1)).max(1e4).optional()
+}).strict();
+var embeddedImage = external_exports.object({
+  source: legacyImageSource,
+  alt: nonBlank(500),
+  caption: trimmedNonBlank(500).optional(),
+  crop: imageCrop.optional(),
+  hotspot: imageHotspot.optional()
+}).strict();
+var videoPoster = external_exports.object({
+  source: legacyImageSource,
+  alt: nonBlank(500),
+  crop: imageCrop.optional(),
+  hotspot: imageHotspot.optional()
+}).strict();
+function isAllowedExternalVideoUrl(value) {
+  try {
+    const url = new URL(value);
+    if (url.protocol !== "https:" || url.username || url.password || !url.hostname) return false;
+    const hostname2 = url.hostname.toLowerCase().replace(/\.$/u, "");
+    const hosts = [
+      "youtube.com",
+      "youtube-nocookie.com",
+      "vimeo.com",
+      "bilibili.com",
+      "youtu.be",
+      "b23.tv"
+    ];
+    if (hosts.some((allowed) => hostname2 === allowed || hostname2.endsWith(`.${allowed}`))) {
+      return true;
+    }
+    return /\.(?:mp4|webm)$/iu.test(url.pathname);
+  } catch {
+    return false;
+  }
+}
+var uploadVideo = external_exports.object({
+  _type: external_exports.literal("video"),
+  _key: portableTextKey.optional(),
+  sourceType: external_exports.literal("upload"),
+  source: videoSource,
+  title: nonBlank(240),
+  caption: trimmedNonBlank(500).optional(),
+  poster: videoPoster.optional()
+}).strict();
+var externalVideo = external_exports.object({
+  _type: external_exports.literal("video"),
+  _key: portableTextKey.optional(),
+  sourceType: external_exports.literal("external"),
+  url: external_exports.string().min(1).max(2048).refine(isAllowedExternalVideoUrl, "unsupported external video URL"),
+  title: nonBlank(240),
+  caption: trimmedNonBlank(500).optional(),
+  poster: videoPoster.optional()
+}).strict();
+var video = external_exports.discriminatedUnion("sourceType", [uploadVideo, externalVideo]);
+var attachment = external_exports.object({
+  _type: external_exports.literal("attachment"),
+  _key: portableTextKey.optional(),
+  source: attachmentSource,
+  title: nonBlank(240)
+}).strict();
+var callout = external_exports.object({
+  _type: external_exports.literal("callout"),
+  _key: portableTextKey.optional(),
+  tone: external_exports.enum(["info", "success", "warning", "error"]).default("info"),
+  title: trimmedNonBlank(240).optional(),
+  body: meaningfulContent(
+    nestedTextBlock,
+    "A callout requires at least one text block.",
+    "A callout requires non-empty text."
+  )
+}).strict();
+var tableCell = external_exports.object({
+  _type: external_exports.literal("cell").default("cell"),
+  _key: portableTextKey.optional(),
+  value: meaningfulContent(
+    nestedTextBlock,
+    "A table cell requires at least one text block.",
+    "A table cell requires non-empty text."
+  )
+}).strict();
+var tableRow = external_exports.object({
+  _type: external_exports.literal("row").default("row"),
+  _key: portableTextKey.optional(),
+  cells: external_exports.array(tableCell).min(1, "A table row requires at least one cell.")
+}).strict();
+var table = external_exports.object({
+  _type: external_exports.literal("table"),
+  _key: portableTextKey.optional(),
+  headerRows: external_exports.number().int().min(0).max(1).default(1),
+  rows: external_exports.array(tableRow).min(1, "A table requires at least one row.")
+}).strict().superRefine((value, context) => {
+  const width = value.rows[0]?.cells.length;
+  value.rows.forEach((row, index) => {
+    if (row.cells.length !== width) {
+      context.addIssue({
+        code: external_exports.ZodIssueCode.custom,
+        path: ["rows", index, "cells"],
+        message: "Every table row must contain the same number of cells."
+      });
+    }
+  });
+});
+var mediaText = external_exports.object({
+  _type: external_exports.literal("mediaText"),
+  _key: portableTextKey.optional(),
+  eyebrow: trimmedNonBlank(120).optional(),
+  heading: nonBlank(240),
+  body: meaningfulContent(
+    nestedTextBlock,
+    "Media text requires at least one text block.",
+    "Media text requires non-empty text."
+  ),
+  image: embeddedImage,
+  mediaPosition: external_exports.enum(["auto", "left", "right"]).default("auto")
+}).strict();
+var faqItem = external_exports.object({
+  _type: external_exports.literal("faqItem").default("faqItem"),
+  _key: portableTextKey.optional(),
+  question: nonBlank(300),
+  answer: meaningfulContent(
+    nestedTextBlock,
+    "An FAQ answer requires at least one text block.",
+    "An FAQ answer requires non-empty text."
+  )
+}).strict();
+var faqSection = external_exports.object({
+  _type: external_exports.literal("faqSection"),
+  _key: portableTextKey.optional(),
+  heading: trimmedNonBlank(240).optional(),
+  items: external_exports.array(faqItem).min(1, "An FAQ section requires at least one item.")
+}).strict();
+var tutorialStepBodyItem = external_exports.union([nestedTextBlock, portableTextCode]);
+var tutorialStep = external_exports.object({
+  _type: external_exports.literal("tutorialStep").default("tutorialStep"),
+  _key: portableTextKey.optional(),
+  title: nonBlank(240),
+  body: meaningfulContent(
+    tutorialStepBodyItem,
+    "A tutorial step requires at least one content block.",
+    "A tutorial step requires non-empty text or code."
+  ),
+  image: embeddedImage.optional()
+}).strict();
+var tutorialSteps = external_exports.object({
+  _type: external_exports.literal("tutorialSteps"),
+  _key: portableTextKey.optional(),
+  heading: trimmedNonBlank(240).optional(),
+  steps: external_exports.array(tutorialStep).min(1, "Tutorial steps requires at least one step.")
+}).strict();
+var ctaAction = external_exports.object({
+  _type: external_exports.literal("ctaAction").default("ctaAction"),
+  label: nonBlank(120),
+  href: external_exports.string().min(1).max(2048).refine(safeLinkHref, "unsupported CTA link"),
+  openInNewTab: external_exports.boolean().default(true)
+}).strict();
+var cta = external_exports.object({
+  _type: external_exports.literal("cta"),
+  _key: portableTextKey.optional(),
+  eyebrow: trimmedNonBlank(120).optional(),
+  heading: nonBlank(240),
+  body: meaningfulContent(
+    nestedTextBlock,
+    "CTA body requires at least one text block.",
+    "CTA body requires non-empty text."
+  ).optional(),
+  primaryAction: ctaAction,
+  secondaryAction: ctaAction.optional(),
+  theme: external_exports.enum(["dark", "brand", "light"]).default("dark")
 }).strict();
 var portableTextItem = external_exports.union([
   portableTextBlock,
   portableTextImage,
-  portableTextCode
+  portableTextCode,
+  video,
+  attachment,
+  callout,
+  table,
+  mediaText,
+  faqSection,
+  tutorialSteps,
+  cta
 ]);
 var coverImage = external_exports.object({
   source: legacyImageSource,
@@ -22327,6 +22798,7 @@ var sitemap = external_exports.object({
 var articleSchema = external_exports.object({
   title: localizedString(240),
   slug: external_exports.string().min(1).max(96).regex(SLUG_PATTERN),
+  template: external_exports.enum(BLOG_TEMPLATE_IDS).optional(),
   publishedAt: external_exports.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/u).refine((value) => !Number.isNaN(Date.parse(value)), "invalid UTC timestamp").optional(),
   excerpt: localizedString(240),
   author: author.optional(),
@@ -22345,9 +22817,130 @@ var articleSchema = external_exports.object({
     sitemap: sitemap.optional()
   }).strict()
 }).strict();
+function stableKey(scope, value) {
+  const cleanValue = { ...value };
+  delete cleanValue._key;
+  return `k_${createHash("sha256").update(`${scope}:${JSON.stringify(cleanValue)}`).digest("hex").slice(0, 16)}`;
+}
+function assignKeys(items, scope, issues) {
+  const used = /* @__PURE__ */ new Set();
+  items.forEach((item, index) => {
+    const key = item._key || stableKey(`${scope}.${index}`, item);
+    if (used.has(key)) {
+      issues.push({
+        path: [...scope.split("."), index, "_key"],
+        code: "custom",
+        message: `_key "${key}" is duplicated.`
+      });
+    }
+    used.add(key);
+    item._key = key;
+  });
+}
+function normalizeBlocks(items, scope, allowedMarks, issues) {
+  assignKeys(items, scope, issues);
+  items.forEach((block, blockIndex) => {
+    const blockScope = `${scope}.${blockIndex}`;
+    assignKeys(block.markDefs, `${blockScope}.markDefs`, issues);
+    assignKeys(block.children, `${blockScope}.children`, issues);
+    const annotations = new Set(block.markDefs.map((definition) => definition._key));
+    block.children.forEach((span, spanIndex) => {
+      span.marks.forEach((mark, markIndex) => {
+        if (allowedMarks.has(mark) || annotations.has(mark)) return;
+        issues.push({
+          path: [
+            ...scope.split("."),
+            blockIndex,
+            "children",
+            spanIndex,
+            "marks",
+            markIndex
+          ],
+          code: "custom",
+          message: `mark "${mark}" has no matching link markDef.`
+        });
+      });
+    });
+  });
+}
+function normalizeNestedContent(items, scope, issues) {
+  assignKeys(items, scope, issues);
+  items.forEach((item, index) => {
+    if (item._type !== "block") return;
+    normalizeBlocks([item], `${scope}.${index}.block`, NESTED_MARKS, issues);
+  });
+}
+function normalizePortableText(items, locale, issues) {
+  const scope = `body.${locale}`;
+  assignKeys(items, scope, issues);
+  items.forEach((item, itemIndex) => {
+    const itemScope = `${scope}.${itemIndex}`;
+    if (item._type === "block") {
+      normalizeBlocks([item], `${itemScope}.block`, ROOT_MARKS, issues);
+    } else if (item._type === "callout") {
+      normalizeBlocks(item.body, `${itemScope}.body`, NESTED_MARKS, issues);
+    } else if (item._type === "table") {
+      assignKeys(item.rows, `${itemScope}.rows`, issues);
+      item.rows.forEach((row, rowIndex) => {
+        const rowScope = `${itemScope}.rows.${rowIndex}`;
+        assignKeys(row.cells, `${rowScope}.cells`, issues);
+        row.cells.forEach((cell, cellIndex) => {
+          normalizeBlocks(
+            cell.value,
+            `${rowScope}.cells.${cellIndex}.value`,
+            NESTED_MARKS,
+            issues
+          );
+        });
+      });
+    } else if (item._type === "mediaText") {
+      normalizeBlocks(item.body, `${itemScope}.body`, NESTED_MARKS, issues);
+    } else if (item._type === "faqSection") {
+      assignKeys(item.items, `${itemScope}.items`, issues);
+      item.items.forEach((faq, faqIndex) => {
+        normalizeBlocks(
+          faq.answer,
+          `${itemScope}.items.${faqIndex}.answer`,
+          NESTED_MARKS,
+          issues
+        );
+      });
+    } else if (item._type === "tutorialSteps") {
+      assignKeys(item.steps, `${itemScope}.steps`, issues);
+      item.steps.forEach((step, stepIndex) => {
+        normalizeNestedContent(
+          step.body,
+          `${itemScope}.steps.${stepIndex}.body`,
+          issues
+        );
+      });
+    } else if (item._type === "cta" && item.body) {
+      normalizeBlocks(item.body, `${itemScope}.body`, NESTED_MARKS, issues);
+    }
+  });
+}
+function normalizeAndValidateArticle(article) {
+  const issues = [];
+  normalizePortableText(article.body.en, "en", issues);
+  normalizePortableText(article.body.zh, "zh", issues);
+  issues.push(...validateBlogTemplate(article).map((issue2) => ({ ...issue2, code: "custom" })));
+  if (issues.length > 0) {
+    throw new ArticleValidationError(
+      "ARTICLE_SCHEMA_INVALID",
+      "The article does not satisfy the built-in contract.",
+      {
+        issues: issues.slice(0, 20).map((issue2) => ({
+          ...issue2,
+          path: Array.isArray(issue2.path) ? issue2.path.join(".") : issue2.path
+        }))
+      }
+    );
+  }
+  return article;
+}
 function isInside(root, candidate) {
-  const relative = path3.relative(root, candidate);
-  return relative === "" || !relative.startsWith(`..${path3.sep}`) && relative !== ".." && !path3.isAbsolute(relative);
+  const relative = path4.relative(root, candidate);
+  return relative === "" || !relative.startsWith(`..${path4.sep}`) && relative !== ".." && !path4.isAbsolute(relative);
 }
 function deepFreeze(value) {
   if (!value || typeof value !== "object" || Object.isFrozen(value)) return value;
@@ -22401,57 +22994,34 @@ function validateCanonicalOrigin(article, config2) {
     );
   }
 }
-function hasImageSignature(bytes, extension) {
-  if (extension === ".png") {
-    return bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
-  }
-  if (extension === ".jpg" || extension === ".jpeg") {
-    return bytes.length >= 3 && bytes[0] === 255 && bytes[1] === 216 && bytes[2] === 255;
-  }
-  if (extension === ".gif") {
-    const signature = bytes.subarray(0, 6).toString("ascii");
-    return signature === "GIF87a" || signature === "GIF89a";
-  }
-  if (extension === ".webp") {
-    return bytes.subarray(0, 4).toString("ascii") === "RIFF" && bytes.subarray(8, 12).toString("ascii") === "WEBP";
-  }
-  if (extension === ".avif") {
-    const box = bytes.subarray(0, 32).toString("ascii");
-    return box.slice(4, 8) === "ftyp" && /avif|avis/u.test(box.slice(8));
-  }
-  return false;
-}
-function collectLocalAssetPaths(article) {
-  const sources = [article.coverImage.source];
-  for (const locale of ["en", "zh"]) {
-    for (const item of article.body[locale]) {
-      if (item._type === "image") sources.push(item.source);
-    }
-  }
-  if (article.seo.openGraph?.image) sources.push(article.seo.openGraph.image.source);
-  const localPaths = /* @__PURE__ */ new Map();
-  for (const source of sources) {
-    if (!("path" in source)) continue;
-    const identity = source.path.toLowerCase();
-    const existing = localPaths.get(identity);
-    if (existing !== void 0 && existing !== source.path) {
+function collectLocalAssetReferences(article) {
+  const references = /* @__PURE__ */ new Map();
+  for (const reference of collectBlogAssetSources(article)) {
+    if (!("path" in reference.source)) continue;
+    const identity = reference.source.path.toLowerCase();
+    const existing = references.get(identity);
+    if (existing && (existing.relativePath !== reference.source.path || existing.kind !== reference.kind)) {
       throw new ArticleValidationError(
         "ASSET_PATH_COLLISION",
-        "Local image paths must be unique without case distinctions."
+        "Local asset paths must be unique without case distinctions and cannot serve multiple asset kinds."
       );
     }
-    localPaths.set(identity, source.path);
+    references.set(identity, {
+      kind: reference.kind,
+      relativePath: reference.source.path,
+      location: reference.location
+    });
   }
-  if (localPaths.size > MAX_ASSETS) {
+  if (references.size > MAX_ASSETS) {
     throw new ArticleValidationError(
       "ASSET_COUNT_EXCEEDED",
-      `An article may reference at most ${MAX_ASSETS} local images.`
+      `An article may reference at most ${MAX_ASSETS} local assets.`
     );
   }
-  return [...localPaths.values()];
+  return [...references.values()];
 }
 async function canonicalBlogRoot(config2) {
-  const requested = path3.resolve(config2.workspaceRoot, "blog");
+  const requested = path4.resolve(config2.workspaceRoot, "blog");
   try {
     const info = await lstat2(requested);
     if (!info.isDirectory() || info.isSymbolicLink()) throw new Error("unsafe directory");
@@ -22467,12 +23037,12 @@ async function canonicalBlogRoot(config2) {
 }
 async function inspectArticleFile(articlePath3, config2) {
   const blogRoot = await canonicalBlogRoot(config2);
-  const requested = path3.resolve(articlePath3);
+  const requested = path4.resolve(articlePath3);
   let info;
   let resolvedArticle;
   try {
     info = await lstat2(requested);
-    if (!info.isFile() || info.isSymbolicLink() || path3.extname(requested).toLowerCase() !== ".json") {
+    if (!info.isFile() || info.isSymbolicLink() || path4.extname(requested).toLowerCase() !== ".json") {
       throw new Error("unsafe article");
     }
     resolvedArticle = await realpath(requested);
@@ -22517,19 +23087,20 @@ async function inspectArticleFile(articlePath3, config2) {
       { issues }
     );
   }
-  validateCanonicalOrigin(parsed.data, config2);
-  if (path3.basename(resolvedArticle, ".json") !== parsed.data.slug) {
+  const article = normalizeAndValidateArticle(parsed.data);
+  validateCanonicalOrigin(article, config2);
+  if (path4.basename(resolvedArticle, ".json") !== article.slug) {
     throw new ArticleValidationError(
       "ARTICLE_SLUG_MISMATCH",
       "The article slug must match the JSON filename."
     );
   }
-  return { article: parsed.data, articleBytes, articlePath: resolvedArticle, blogRoot };
+  return { article, articleBytes, articlePath: resolvedArticle, blogRoot };
 }
 async function inspectAssets(articleInfo) {
-  const localPaths = collectLocalAssetPaths(articleInfo.article);
-  if (localPaths.length === 0) return [];
-  const assetRoot = path3.join(path3.dirname(articleInfo.articlePath), "assets");
+  const references = collectLocalAssetReferences(articleInfo.article);
+  if (references.length === 0) return [];
+  const assetRoot = path4.join(path4.dirname(articleInfo.articlePath), "assets");
   try {
     const rootInfo = await lstat2(assetRoot);
     const resolvedRoot = await realpath(assetRoot);
@@ -22544,9 +23115,9 @@ async function inspectAssets(articleInfo) {
   }
   const assets = [];
   let total = 0;
-  for (const relativePath of localPaths) {
+  for (const { kind, relativePath } of references) {
     const filename = relativePath.slice("./assets/".length);
-    const candidate = path3.join(assetRoot, filename);
+    const candidate = path4.join(assetRoot, filename);
     let info;
     let resolved;
     try {
@@ -22556,49 +23127,49 @@ async function inspectAssets(articleInfo) {
     } catch {
       throw new ArticleValidationError(
         "ASSET_FILE_INVALID",
-        `A referenced local image is missing or unsafe: ${filename}`
+        `A referenced local asset is missing or unsafe: ${filename}`
       );
     }
     if (!isInside(assetRoot, resolved) || resolved !== candidate) {
       throw new ArticleValidationError(
         "ASSET_PATH_INVALID",
-        `A referenced local image escapes the assets directory: ${filename}`
+        `A referenced local asset escapes the assets directory: ${filename}`
       );
     }
-    if (info.size <= 0 || info.size > MAX_ASSET_BYTES) {
-      throw new ArticleValidationError(
-        "ASSET_SIZE_INVALID",
-        `A local image is empty or exceeds ${MAX_ASSET_BYTES} bytes: ${filename}`
-      );
-    }
-    const extension = path3.extname(filename).toLowerCase();
-    const mimeType = MIME_TYPES.get(extension);
-    if (!mimeType) {
+    const definition = assetDefinitionForFilename(filename);
+    if (!definition || definition.kind !== kind) {
       throw new ArticleValidationError(
         "ASSET_FORMAT_INVALID",
-        `Unsupported local image extension: ${filename}`
+        `Unsupported or mismatched local ${kind} extension: ${filename}`
+      );
+    }
+    if (info.size <= 0 || info.size > definition.maxBytes) {
+      throw new ArticleValidationError(
+        "ASSET_SIZE_INVALID",
+        `A local ${kind} is empty or exceeds ${definition.maxBytes} bytes: ${filename}`
       );
     }
     const bytes = await readFile2(resolved);
-    if (bytes.length !== info.size || bytes.length > MAX_ASSET_BYTES) {
-      throw new ArticleValidationError("ASSET_CHANGED", `A local image changed: ${filename}`);
+    if (bytes.length !== info.size || bytes.length > definition.maxBytes) {
+      throw new ArticleValidationError("ASSET_CHANGED", `A local asset changed: ${filename}`);
     }
-    if (!hasImageSignature(bytes, extension)) {
+    if (!hasAssetSignature(bytes, definition)) {
       throw new ArticleValidationError(
         "ASSET_FORMAT_INVALID",
-        `Image bytes do not match the extension: ${filename}`
+        `Asset bytes do not match the extension: ${filename}`
       );
     }
     total += bytes.length;
     if (total > MAX_TOTAL_BYTES) {
       throw new ArticleValidationError(
         "REQUEST_SIZE_EXCEEDED",
-        `The local images exceed ${MAX_TOTAL_BYTES} bytes.`
+        `The local assets exceed ${MAX_TOTAL_BYTES} bytes.`
       );
     }
     assets.push({
+      kind,
       filename,
-      mimeType,
+      mimeType: definition.mimeType,
       bytes: Buffer.from(bytes),
       size: bytes.length,
       sha256: createHash("sha256").update(bytes).digest("hex")
@@ -22626,6 +23197,7 @@ async function prepareArticleSnapshot(articlePath3, { config: config2 } = {}) {
     contentHash.update(asset.sha256);
   }
   const contentSha256 = contentHash.digest("hex");
+  const assetCounts = countAssetsByKind(assets);
   const state = {
     article,
     articleBytes: Buffer.from(articleInfo.articleBytes),
@@ -22636,9 +23208,12 @@ async function prepareArticleSnapshot(articlePath3, { config: config2 } = {}) {
     article,
     articlePath: articleInfo.articlePath,
     slug: article.slug,
+    template: resolveBlogTemplate(article.template),
     sha256: createHash("sha256").update(articleInfo.articleBytes).digest("hex"),
     contentSha256,
-    localImageCount: assets.length,
+    localImageCount: assetCounts.image,
+    localAssetCount: assets.length,
+    assetCounts,
     totalAssetBytes: assets.reduce((sum, asset) => sum + asset.size, 0)
   });
   snapshotState.set(snapshot, state);
@@ -22660,22 +23235,24 @@ function materializeArticleRequest(snapshot, { forUpdate = false, createPublishe
     }
     requestArticle2.publishedAt = createPublishedAt;
   }
-  const articleBytes = forUpdate || createPublishedAt !== void 0 ? Buffer.from(`${JSON.stringify(requestArticle2)}
-`, "utf8") : Buffer.from(state.articleBytes);
+  const articleBytes = Buffer.from(`${JSON.stringify(requestArticle2)}
+`, "utf8");
   const immutableArticle = deepFreeze(requestArticle2);
   if (state.assets.length === 0) {
     return {
       article: immutableArticle,
       body: articleBytes,
       headers: { "Content-Type": "application/json" },
-      localImageCount: 0
+      localImageCount: 0,
+      localAssetCount: 0,
+      assetCounts: countAssetsByKind([])
     };
   }
   const body = new FormData();
   body.append(
     "article",
     new Blob([articleBytes], { type: "application/json" }),
-    path3.basename(state.articlePath)
+    path4.basename(state.articlePath)
   );
   for (const asset of state.assets) {
     body.append("assets", new Blob([asset.bytes], { type: asset.mimeType }), asset.filename);
@@ -22684,7 +23261,9 @@ function materializeArticleRequest(snapshot, { forUpdate = false, createPublishe
     article: immutableArticle,
     body,
     headers: {},
-    localImageCount: state.assets.length
+    localImageCount: snapshot.localImageCount,
+    localAssetCount: snapshot.localAssetCount,
+    assetCounts: snapshot.assetCounts
   };
 }
 function describeArticleSnapshot(snapshot) {
@@ -22703,7 +23282,10 @@ function describeArticleSnapshot(snapshot) {
       en: snapshot.article.body.en.length,
       zh: snapshot.article.body.zh.length
     },
+    template: snapshot.template,
     localImageCount: snapshot.localImageCount,
+    localAssetCount: snapshot.localAssetCount,
+    assetCounts: snapshot.assetCounts,
     totalAssetBytes: snapshot.totalAssetBytes
   };
 }
@@ -22714,8 +23296,11 @@ function materializeArticlePreviewAssets(snapshot) {
   }
   return state.assets.map((asset) => Object.freeze({
     sourcePath: `./assets/${asset.filename}`,
+    filename: asset.filename,
+    kind: asset.kind,
     mimeType: asset.mimeType,
     bytes: Buffer.from(asset.bytes),
+    size: asset.size,
     sha256: asset.sha256
   }));
 }
@@ -22724,7 +23309,6 @@ function materializeArticlePreviewAssets(snapshot) {
 var SAFE_REQUEST_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/u;
 var SAFE_ERROR_CODE = /^[A-Z][A-Z0-9_]{0,127}$/u;
 var SAFE_RESULT_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/u;
-var SAFE_ASSET_ID = /^image-[A-Za-z0-9]+-[0-9]+x[0-9]+-[A-Za-z0-9]+$/u;
 var PublisherApiError = class extends Error {
   constructor({
     statusCode,
@@ -22756,16 +23340,24 @@ function validResultId(value, token) {
   return typeof value === "string" && SAFE_RESULT_ID.test(value) && doesNotContainSecret(value, token);
 }
 function validUploadedAssetIds(value, token) {
-  return Array.isArray(value) && value.length <= MAX_ASSETS && value.every(
-    (assetId) => typeof assetId === "string" && SAFE_ASSET_ID.test(assetId) && doesNotContainSecret(assetId, token)
+  return Array.isArray(value) && value.length <= MAX_ASSETS && new Set(value).size === value.length && value.every(
+    (assetId) => typeof assetId === "string" && SAFE_UPLOADED_ASSET_ID.test(assetId) && doesNotContainSecret(assetId, token)
   );
 }
 function safeUploadedAssetIds(payload, token) {
   const candidate = payload?.error?.details?.uploadedAssetIds;
   if (!Array.isArray(candidate)) return [];
-  return candidate.filter(
-    (assetId) => typeof assetId === "string" && SAFE_ASSET_ID.test(assetId) && doesNotContainSecret(assetId, token)
-  ).slice(0, MAX_ASSETS);
+  const safe = [];
+  const seen = /* @__PURE__ */ new Set();
+  for (const assetId of candidate) {
+    if (typeof assetId !== "string" || !SAFE_UPLOADED_ASSET_ID.test(assetId) || !doesNotContainSecret(assetId, token) || seen.has(assetId)) {
+      continue;
+    }
+    seen.add(assetId);
+    safe.push(assetId);
+    if (safe.length === MAX_ASSETS) break;
+  }
+  return safe;
 }
 function safeErrorCode(value, token) {
   return typeof value === "string" && SAFE_ERROR_CODE.test(value) && doesNotContainSecret(value, token) ? value : "API_REQUEST_FAILED";
@@ -23003,7 +23595,7 @@ import {
   rm as rm2
 } from "node:fs/promises";
 import os3 from "node:os";
-import path4 from "node:path";
+import path5 from "node:path";
 import crypto from "node:crypto";
 var writeQueues = /* @__PURE__ */ new Map();
 var SLUG_PATTERN2 = /^[a-z0-9]+(?:-[a-z0-9]+)*$/u;
@@ -23143,9 +23735,9 @@ async function assertTargetIsSafe(targetPath) {
   }
 }
 async function writeRecordAtomically(targetPath, source, permissions) {
-  const temporaryPath = path4.join(
-    path4.dirname(targetPath),
-    `.${path4.basename(targetPath)}.${process.pid}.${crypto.randomUUID()}.tmp`
+  const temporaryPath = path5.join(
+    path5.dirname(targetPath),
+    `.${path5.basename(targetPath)}.${process.pid}.${crypto.randomUUID()}.tmp`
   );
   let handle;
   try {
@@ -23199,7 +23791,7 @@ async function writePublicationRecord({
     platform: options.platform ?? platform,
     acl: options.acl ?? acl
   };
-  const targetPath = path4.join(publishedDirectory, `${record2.result.slug}.json`);
+  const targetPath = path5.join(publishedDirectory, `${record2.result.slug}.json`);
   return enqueue(targetPath, async () => {
     try {
       const configStats = await lstat3(configDirectory);
@@ -23239,20 +23831,12 @@ import {
   rename as rename3,
   rm as rm3
 } from "node:fs/promises";
-import path5 from "node:path";
+import path6 from "node:path";
 import { pathToFileURL } from "node:url";
 var MAX_MARKDOWN_BYTES = 2 * 1024 * 1024;
 var MAX_PREVIEW_BYTES = 384 * 1024 * 1024;
 var FILE_MODE = 384;
 var SHA256_PATTERN = /^[0-9a-f]{64}$/u;
-var SAFE_ASSET_PATH2 = /^\.\/assets\/[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u;
-var SAFE_IMAGE_MIME_TYPES = /* @__PURE__ */ new Set([
-  "image/avif",
-  "image/gif",
-  "image/jpeg",
-  "image/png",
-  "image/webp"
-]);
 var PreviewError = class extends Error {
   constructor(code, message) {
     super(message);
@@ -23273,7 +23857,7 @@ function sameFileSnapshot(left, right) {
   return left.dev === right.dev && left.ino === right.ino && left.size === right.size && left.mtimeNs === right.mtimeNs && left.ctimeNs === right.ctimeNs;
 }
 async function inspectMarkdown(articlePath3, slug3) {
-  const markdownPath = path5.join(path5.dirname(articlePath3), `${slug3}.md`);
+  const markdownPath = path6.join(path6.dirname(articlePath3), `${slug3}.md`);
   let pathInfo;
   let resolved;
   try {
@@ -23324,11 +23908,18 @@ async function inspectMarkdown(articlePath3, slug3) {
   };
 }
 function safeLinkHref2(value) {
-  if (value.startsWith("/") && !value.startsWith("//")) return true;
-  if (value.startsWith("#") || value.startsWith("./") || value.startsWith("../")) return true;
+  if (typeof value !== "string" || /[\u0000-\u001f\u007f]/u.test(value)) return false;
+  if (value.startsWith("//") || value.startsWith("\\\\")) return false;
+  const scheme = /^([A-Za-z][A-Za-z0-9+.-]*):/u.exec(value);
+  if (!scheme) return true;
+  const protocol = scheme[1].toLowerCase();
+  if (!["http", "https", "mailto", "tel"].includes(protocol)) return false;
+  if (protocol === "mailto" || protocol === "tel") {
+    return value.slice(scheme[0].length).trim().length > 0;
+  }
   try {
     const url = new URL(value);
-    return ["http:", "https:", "mailto:", "tel:"].includes(url.protocol);
+    return url.protocol === `${protocol}:` && Boolean(url.hostname);
   } catch {
     return false;
   }
@@ -23484,39 +24075,51 @@ function materializePreviewAssetMap(snapshot) {
   }
   const byPath = /* @__PURE__ */ new Map();
   const byDigest = /* @__PURE__ */ new Map();
+  let encodedBytes = 0;
   for (const asset of assets) {
-    if (!asset || typeof asset !== "object" || typeof asset.sourcePath !== "string" || !SAFE_ASSET_PATH2.test(asset.sourcePath) || typeof asset.mimeType !== "string" || !SAFE_IMAGE_MIME_TYPES.has(asset.mimeType) || !Buffer.isBuffer(asset.bytes) || !SHA256_PATTERN.test(asset.sha256) || byPath.has(asset.sourcePath)) {
+    const fileDefinition = assetDefinitionForFilename(asset?.filename ?? "");
+    if (!asset || typeof asset !== "object" || typeof asset.sourcePath !== "string" || !SAFE_LOCAL_ASSET_PATH.test(asset.sourcePath) || typeof asset.filename !== "string" || !fileDefinition || asset.kind !== fileDefinition.kind || typeof asset.mimeType !== "string" || asset.mimeType !== fileDefinition.mimeType || !Buffer.isBuffer(asset.bytes) || asset.size !== asset.bytes.length || !SHA256_PATTERN.test(asset.sha256) || byPath.has(asset.sourcePath)) {
       fail(
         "PREVIEW_ASSETS_INVALID",
-        "A validated article image has invalid preview metadata."
+        "A validated article asset has invalid preview metadata."
       );
     }
     const sha256 = createHash2("sha256").update(asset.bytes).digest("hex");
     if (sha256 !== asset.sha256) {
       fail(
         "PREVIEW_ASSETS_INVALID",
-        "A validated article image changed before preview rendering."
+        "A validated article asset changed before preview rendering."
       );
     }
     let definition = byDigest.get(asset.sha256);
-    if (definition && definition.mimeType !== asset.mimeType) {
+    if (definition && (definition.mimeType !== asset.mimeType || definition.kind !== asset.kind)) {
       fail(
         "PREVIEW_ASSETS_INVALID",
-        "Equivalent validated article image bytes have conflicting MIME types."
+        "Equivalent validated article asset bytes have conflicting metadata."
       );
     }
+    const embedsBytes = asset.kind === "image" || asset.kind === "video";
     definition ??= Object.freeze({
       id: `preview-asset-${asset.sha256}`,
+      filename: asset.filename,
+      kind: asset.kind,
       mimeType: asset.mimeType,
-      base64: asset.bytes.toString("base64")
+      size: asset.size,
+      ...embedsBytes ? { base64: asset.bytes.toString("base64") } : {}
     });
+    if (!byDigest.has(asset.sha256) && embedsBytes) {
+      encodedBytes += definition.base64.length;
+      if (encodedBytes > MAX_PREVIEW_BYTES) {
+        fail("PREVIEW_SIZE_INVALID", "The embedded preview assets exceed the preview size limit.");
+      }
+    }
     byDigest.set(asset.sha256, definition);
     byPath.set(asset.sourcePath, definition);
   }
   return Object.freeze({
     byPath,
     definitions: Object.freeze(
-      [...byDigest.values()].sort((left, right) => left.id.localeCompare(right.id))
+      [...byDigest.values()].filter((asset) => asset.base64).sort((left, right) => left.id.localeCompare(right.id))
     )
   });
 }
@@ -23538,7 +24141,7 @@ function localizedKeywords2(value, locale) {
 function localAssetPath(articlePath3, source) {
   if (!source || typeof source !== "object" || !("path" in source)) return void 0;
   const filename = source.path.slice("./assets/".length);
-  return path5.join(path5.dirname(articlePath3), "assets", filename);
+  return path6.join(path6.dirname(articlePath3), "assets", filename);
 }
 function renderSpans(block) {
   const definitions2 = new Map(
@@ -23551,12 +24154,17 @@ function renderSpans(block) {
         rendered = `<strong>${rendered}</strong>`;
       } else if (mark === "em") {
         rendered = `<em>${rendered}</em>`;
+      } else if (mark === "underline") {
+        rendered = `<u>${rendered}</u>`;
+      } else if (mark === "strike-through") {
+        rendered = `<s>${rendered}</s>`;
       } else if (mark === "code") {
         rendered = `<code>${rendered}</code>`;
       } else {
         const definition = definitions2.get(mark);
-        if (definition?._type === "link") {
-          rendered = `<a href="${escapeHtml(definition.href)}" target="_blank" rel="noopener noreferrer">${rendered}</a>`;
+        if (definition?._type === "link" && safeLinkHref2(definition.href)) {
+          const external = definition.openInNewTab !== false ? ' target="_blank" rel="noopener noreferrer"' : "";
+          rendered = `<a href="${escapeHtml(definition.href)}"${external}>${rendered}</a>`;
         }
       }
     }
@@ -23565,6 +24173,7 @@ function renderSpans(block) {
 }
 function renderImage(item, localAssets) {
   const asset = localAsset(item.source, localAssets);
+  const caption = item.caption || item.alt;
   if (!asset) {
     return `<figure class="asset-placeholder" role="img" aria-label="${escapeHtml(item.alt)}">
       <div class="asset-placeholder__icon">\u25C7</div>
@@ -23574,7 +24183,7 @@ function renderImage(item, localAssets) {
   }
   return `<figure class="body-image">
     ${renderEmbeddedImage(asset, item.alt, "body-image__visual")}
-    <figcaption>${escapeHtml(item.alt)}</figcaption>
+    <figcaption>${escapeHtml(caption)}</figcaption>
   </figure>`;
 }
 function renderCode(item) {
@@ -23584,22 +24193,201 @@ function renderCode(item) {
     <pre><code>${escapeHtml(item.code)}</code></pre>
   </figure>`;
 }
-function renderStandaloneItem(item, localAssets) {
-  if (item._type === "image") return renderImage(item, localAssets);
+function renderBlocks(items) {
+  return (items ?? []).map((item) => {
+    if (item._type === "code") return renderCode(item);
+    const content = renderSpans(item);
+    if (item.style === "h2") return `<h2>${content}</h2>`;
+    if (item.style === "h3") return `<h3>${content}</h3>`;
+    if (item.style === "blockquote") return `<blockquote>${content}</blockquote>`;
+    return `<p>${content}</p>`;
+  }).join("");
+}
+function formatBytes(bytes) {
+  if (!Number.isFinite(bytes)) return "Unknown size";
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KiB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MiB`;
+}
+function sourceReference(source) {
+  if (typeof source?.assetRef === "string") return source.assetRef;
+  if (typeof source?.path === "string") return source.path;
+  return "Unknown asset";
+}
+function renderPoster(poster, localAssets) {
+  if (!poster) return { html: "", asset: void 0 };
+  const asset = localAsset(poster.source, localAssets);
+  if (!asset) {
+    return {
+      html: `<div class="media-poster media-poster--placeholder" role="img" aria-label="${escapeHtml(poster.alt)}">Remote video poster</div>`,
+      asset: void 0
+    };
+  }
+  return {
+    html: renderEmbeddedImage(asset, poster.alt, "media-poster"),
+    asset
+  };
+}
+function renderVideo(item, context) {
+  const poster = renderPoster(item.poster, context.localAssets);
+  if (item.sourceType === "external") {
+    return `<figure class="media-card media-card--video">
+      ${poster.html}
+      <div class="media-card__body">
+        <span class="module-eyebrow">External video \xB7 safe link only</span>
+        <strong>${escapeHtml(item.title)}</strong>
+        ${item.caption ? `<p>${escapeHtml(item.caption)}</p>` : ""}
+        <a class="media-link" href="${escapeHtml(item.url)}" target="_blank" rel="noopener noreferrer">Open external video</a>
+      </div>
+    </figure>`;
+  }
+  const asset = localAsset(item.source, context.localAssets);
+  if (asset?.kind === "video") {
+    return `<figure class="media-card media-card--video">
+      <video class="local-video" controls preload="metadata" playsinline data-preview-asset="${asset.id}"${poster.asset ? ` data-preview-poster="${poster.asset.id}"` : ""} aria-label="${escapeHtml(item.title)}"></video>
+      <div class="media-card__body">
+        <span class="module-eyebrow">Validated local video</span>
+        <strong>${escapeHtml(item.title)}</strong>
+        ${item.caption ? `<p>${escapeHtml(item.caption)}</p>` : ""}
+      </div>
+    </figure>`;
+  }
+  return `<figure class="media-card media-card--video">
+    ${poster.html}
+    <div class="media-card__body">
+      <span class="module-eyebrow">Remote Sanity video</span>
+      <strong>${escapeHtml(item.title)}</strong>
+      ${item.caption ? `<p>${escapeHtml(item.caption)}</p>` : ""}
+      <span class="asset-reference">${escapeHtml(sourceReference(item.source))}</span>
+    </div>
+  </figure>`;
+}
+function renderAttachment(item, context) {
+  const asset = localAsset(item.source, context.localAssets);
+  return `<aside class="media-card media-card--attachment">
+    <span class="attachment-icon" aria-hidden="true">DOC</span>
+    <div class="media-card__body">
+      <span class="module-eyebrow">Attachment \xB7 metadata only</span>
+      <strong>${escapeHtml(item.title)}</strong>
+      <dl class="asset-meta">
+        <div><dt>Asset</dt><dd>${escapeHtml(asset?.filename ?? sourceReference(item.source))}</dd></div>
+        ${asset ? `<div><dt>Type</dt><dd>${escapeHtml(asset.mimeType)}</dd></div><div><dt>Size</dt><dd>${escapeHtml(formatBytes(asset.size))}</dd></div>` : ""}
+      </dl>
+    </div>
+  </aside>`;
+}
+function renderCallout(item) {
+  return `<aside class="callout callout--${escapeHtml(item.tone)}">
+    <span class="module-eyebrow">${escapeHtml(item.tone)} callout</span>
+    ${item.title ? `<strong>${escapeHtml(item.title)}</strong>` : ""}
+    <div class="callout__body">${renderBlocks(item.body)}</div>
+  </aside>`;
+}
+function renderTable(item) {
+  const headerRows = Math.min(item.headerRows, item.rows.length);
+  const renderRows = (rows, tag) => rows.map(
+    (row) => `<tr>${row.cells.map(
+      (cell) => `<${tag}>${renderBlocks(cell.value)}</${tag}>`
+    ).join("")}</tr>`
+  ).join("");
+  return `<div class="table-scroll" role="region" aria-label="Content table" tabindex="0">
+    <table>
+      ${headerRows > 0 ? `<thead>${renderRows(item.rows.slice(0, headerRows), "th")}</thead>` : ""}
+      <tbody>${renderRows(item.rows.slice(headerRows), "td")}</tbody>
+    </table>
+  </div>`;
+}
+function renderMediaText(item, context) {
+  const autoAlternates = context.preset.mediaStyle === "alternating";
+  const position = item.mediaPosition === "auto" ? autoAlternates && context.mediaIndex % 2 === 1 ? "left" : "right" : item.mediaPosition;
+  context.mediaIndex += 1;
+  const image = renderImage({
+    _type: "image",
+    source: item.image.source,
+    alt: item.image.alt,
+    caption: item.image.caption
+  }, context.localAssets);
+  return `<section class="media-text media-text--${position}">
+    <div class="media-text__copy">
+      ${item.eyebrow ? `<span class="module-eyebrow">${escapeHtml(item.eyebrow)}</span>` : ""}
+      <h2>${escapeHtml(item.heading)}</h2>
+      ${renderBlocks(item.body)}
+    </div>
+    <div class="media-text__media">${image}</div>
+  </section>`;
+}
+function renderFaq(item) {
+  return `<section class="faq-section">
+    ${item.heading ? `<h2>${escapeHtml(item.heading)}</h2>` : ""}
+    <div class="faq-list">${item.items.map((faq) => `<details>
+      <summary>${escapeHtml(faq.question)}</summary>
+      <div class="faq-answer">${renderBlocks(faq.answer)}</div>
+    </details>`).join("")}</div>
+  </section>`;
+}
+function renderTutorial(item, context) {
+  const steps = item.steps.map((step, index) => {
+    const anchor = `${context.locale}-step-${escapeHtml(step._key)}`;
+    const image = step.image ? renderImage({
+      _type: "image",
+      source: step.image.source,
+      alt: step.image.alt,
+      caption: step.image.caption
+    }, context.localAssets) : "";
+    return `<section class="tutorial-step" id="${anchor}">
+      <span class="step-number">${String(index + 1).padStart(2, "0")}</span>
+      <div class="tutorial-step__body">
+        <h3>${escapeHtml(step.title)}</h3>
+        ${renderBlocks(step.body)}
+        ${image}
+      </div>
+    </section>`;
+  }).join("");
+  const navigation = context.preset.stepNavigation ? `<nav class="tutorial-nav" aria-label="Tutorial steps"><strong>${escapeHtml(item.heading || "Steps")}</strong>${item.steps.map((step, index) => `<a href="#${context.locale}-step-${escapeHtml(step._key)}">${index + 1}. ${escapeHtml(step.title)}</a>`).join("")}</nav>` : "";
+  return `<section class="tutorial-module">
+    ${item.heading ? `<h2>${escapeHtml(item.heading)}</h2>` : ""}
+    <div class="tutorial-layout">${navigation}<div class="tutorial-list">${steps}</div></div>
+  </section>`;
+}
+function renderCtaAction(action, className) {
+  const external = action.openInNewTab !== false ? ' target="_blank" rel="noopener noreferrer"' : "";
+  return `<a class="${className}" href="${escapeHtml(action.href)}"${external}>${escapeHtml(action.label)}</a>`;
+}
+function renderCta(item) {
+  return `<aside class="cta-card cta-card--${escapeHtml(item.theme)}">
+    ${item.eyebrow ? `<span class="module-eyebrow">${escapeHtml(item.eyebrow)}</span>` : ""}
+    <h2>${escapeHtml(item.heading)}</h2>
+    ${item.body ? `<div class="cta-card__body">${renderBlocks(item.body)}</div>` : ""}
+    <div class="cta-actions">
+      ${renderCtaAction(item.primaryAction, "cta-action cta-action--primary")}
+      ${item.secondaryAction ? renderCtaAction(item.secondaryAction, "cta-action cta-action--secondary") : ""}
+    </div>
+  </aside>`;
+}
+function renderStandaloneItem(item, context) {
+  if (item._type === "image") return renderImage(item, context.localAssets);
   if (item._type === "code") return renderCode(item);
+  if (item._type === "video") return renderVideo(item, context);
+  if (item._type === "attachment") return renderAttachment(item, context);
+  if (item._type === "callout") return renderCallout(item);
+  if (item._type === "table") return renderTable(item);
+  if (item._type === "mediaText") return renderMediaText(item, context);
+  if (item._type === "faqSection") return renderFaq(item);
+  if (item._type === "tutorialSteps") return renderTutorial(item, context);
+  if (item._type === "cta") return renderCta(item);
   const content = renderSpans(item);
   if (item.style === "h2") return `<h2>${content}</h2>`;
   if (item.style === "h3") return `<h3>${content}</h3>`;
   if (item.style === "blockquote") return `<blockquote>${content}</blockquote>`;
   return `<p>${content}</p>`;
 }
-function renderPortableText(items, localAssets) {
+function renderPortableText(items, context) {
   const output = [];
   let index = 0;
   while (index < items.length) {
     const item = items[index];
     if (item._type !== "block" || !item.listItem) {
-      output.push(renderStandaloneItem(item, localAssets));
+      output.push(renderStandaloneItem(item, context));
       index += 1;
       continue;
     }
@@ -23618,13 +24406,13 @@ function renderPortableText(items, localAssets) {
   }
   return output.join("\n");
 }
-function renderCover(article, localAssets) {
+function renderCover(article, localAssets, locale) {
   const asset = localAsset(article.coverImage.source, localAssets);
-  const alt = `${article.coverImage.alt.en} / ${article.coverImage.alt.zh}`;
+  const alt = locale ? localized(article.coverImage.alt, locale, "Cover image") : `${article.coverImage.alt.en} / ${article.coverImage.alt.zh}`;
   if (!asset) {
     return `<div class="cover-placeholder" role="img" aria-label="${escapeHtml(alt)}">
       <span>Remote cover image</span>
-      <strong>${escapeHtml(article.title.en)}</strong>
+      <strong>${escapeHtml(locale ? article.title[locale] : article.title.en)}</strong>
     </div>`;
   }
   return renderEmbeddedImage(asset, alt, "cover");
@@ -23690,30 +24478,32 @@ function renderSeo(article, locale, localAssets) {
     ${renderSeoImage(openGraph2, locale, localAssets)}
   </aside>`;
 }
-function renderLocale(article, locale, label, localAssets) {
+function renderLocale(article, locale, label, localAssets, template, preset) {
   const title = article.title[locale];
   const excerpt = article.excerpt[locale];
-  return `<article class="article" id="${locale}" lang="${locale}">
-    <header class="article-header">
+  const context = { locale, localAssets, template, preset, mediaIndex: 0 };
+  const header = template === "default" ? `<header class="article-header">
       <span class="language-label">${escapeHtml(label)}</span>
       <h1>${escapeHtml(title)}</h1>
       <p class="excerpt">${escapeHtml(excerpt)}</p>
-    </header>
-    <div class="prose">${renderPortableText(article.body[locale], localAssets)}</div>
+    </header>` : `<header class="template-hero template-hero--${preset.heroVariant}">
+      <div class="template-hero__copy">
+        <span class="language-label">${escapeHtml(label)} \xB7 ${escapeHtml(template)}</span>
+        <h1>${escapeHtml(title)}</h1>
+        <p class="excerpt">${escapeHtml(excerpt)}</p>
+      </div>
+      <div class="template-hero__media">${renderCover(article, localAssets, locale)}</div>
+    </header>`;
+  return `<article class="article article--${escapeHtml(template)} article--${escapeHtml(preset.tone)}" id="${locale}" lang="${locale}" data-blog-template="${escapeHtml(template)}" data-content-width="${escapeHtml(preset.contentWidth)}">
+    ${header}
+    <div class="prose prose--${escapeHtml(preset.contentWidth)}">${renderPortableText(article.body[locale], context)}</div>
     ${renderSeo(article, locale, localAssets)}
   </article>`;
 }
 function countRemoteImages(article) {
-  let count = "assetRef" in article.coverImage.source ? 1 : 0;
-  for (const locale of ["en", "zh"]) {
-    for (const item of article.body[locale]) {
-      if (item._type === "image" && "assetRef" in item.source) count += 1;
-    }
-  }
-  if (article.seo.openGraph?.image?.source && "assetRef" in article.seo.openGraph.image.source) {
-    count += 1;
-  }
-  return count;
+  return collectBlogAssetSources(article).filter(
+    ({ kind, source }) => kind === "image" && "assetRef" in source
+  ).length;
 }
 function renderAssetBootstrap(localAssets, scriptNonce) {
   if (localAssets.definitions.length === 0) return "";
@@ -23745,6 +24535,12 @@ function renderAssetBootstrap(localAssets, scriptNonce) {
         const objectUrl = sources.get(image.dataset.previewAsset)
         if (objectUrl) image.src = objectUrl
       }
+      for (const video of document.querySelectorAll('video[data-preview-asset]')) {
+        const objectUrl = sources.get(video.dataset.previewAsset)
+        if (objectUrl) video.src = objectUrl
+        const posterUrl = sources.get(video.dataset.previewPoster)
+        if (posterUrl) video.poster = posterUrl
+      }
       window.addEventListener(
         'pagehide',
         () => {
@@ -23757,6 +24553,8 @@ function renderAssetBootstrap(localAssets, scriptNonce) {
 }
 function renderHtml(article, markdownSource, previewRevision4, localAssets) {
   const scriptNonce = randomUUID().replaceAll("-", "");
+  const template = resolveBlogTemplate(article.template);
+  const preset = getBlogTemplatePreset(template);
   const published = article.publishedAt ? `<span>Published timestamp: ${escapeHtml(article.publishedAt)}</span>` : "<span>Draft without a fixed publication timestamp</span>";
   return `<!doctype html>
 <html lang="en">
@@ -23764,7 +24562,7 @@ function renderHtml(article, markdownSource, previewRevision4, localAssets) {
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex,nofollow">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data: blob:; script-src 'nonce-${scriptNonce}'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-src 'none'; object-src 'none'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data: blob:; media-src blob:; script-src 'nonce-${scriptNonce}'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-src 'none'; object-src 'none'">
   <title>${escapeHtml(article.title.en)} \u2014 local preview</title>
   <style>
     :root { color-scheme: light dark; --bg: #f4f1ea; --paper: #fffdf8; --ink: #17201d; --muted: #66706c; --line: #d9d3c8; --accent: #0f766e; --soft: #dff4ef; }
@@ -23784,7 +24582,7 @@ function renderHtml(article, markdownSource, previewRevision4, localAssets) {
     .cover-placeholder strong { font-size: clamp(24px, 5vw, 58px); line-height: 1.08; }
     .hero-meta { padding: 18px 24px; display: flex; flex-wrap: wrap; gap: 10px 18px; color: var(--muted); font-size: 14px; }
     .columns { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; margin-top: 18px; align-items: start; }
-    .article { min-width: 0; padding: clamp(24px, 4vw, 54px); border: 1px solid var(--line); border-radius: 24px; background: var(--paper); box-shadow: 0 18px 44px rgba(28, 40, 35, .07); }
+    .article { min-width: 0; overflow: hidden; padding: clamp(24px, 4vw, 54px); border: 1px solid var(--line); border-radius: 24px; background: var(--paper); box-shadow: 0 18px 44px rgba(28, 40, 35, .07); container-type: inline-size; }
     .language-label { display: inline-block; margin-bottom: 14px; color: var(--accent); font-size: 12px; font-weight: 800; letter-spacing: .16em; text-transform: uppercase; }
     h1 { margin: 0; font-family: Georgia, "Times New Roman", serif; font-size: clamp(36px, 5vw, 62px); line-height: 1.03; letter-spacing: -.035em; }
     .excerpt { margin: 22px 0 0; color: var(--muted); font-size: 19px; line-height: 1.55; }
@@ -23808,6 +24606,72 @@ function renderHtml(article, markdownSource, previewRevision4, localAssets) {
     .code-block figcaption { margin: 0; padding: 9px 14px; background: #1f2937; color: #9ca3af; }
     .code-block pre { margin: 0; padding: 18px; overflow: auto; }
     .code-block code { padding: 0; background: none; color: inherit; }
+    .template-hero { display: grid; grid-template-columns: minmax(0, 1.08fr) minmax(220px, .92fr); gap: clamp(22px, 4vw, 48px); margin: calc(clamp(24px, 4vw, 54px) * -1); margin-bottom: 42px; padding: clamp(30px, 5vw, 64px); background: #070908; color: #fff; isolation: isolate; }
+    .template-hero::before { content: ""; position: absolute; inset: 0; pointer-events: none; opacity: .28; background-image: linear-gradient(rgba(255,255,255,.08) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.08) 1px, transparent 1px); background-size: 32px 32px; z-index: -1; }
+    .template-hero { position: relative; }
+    .template-hero__copy { align-self: center; }
+    .template-hero h1 { color: #fff; }
+    .template-hero .excerpt { color: #c5ccc8; }
+    .template-hero .language-label { color: #76e7cc; }
+    .template-hero__media { align-self: center; }
+    .template-hero .cover, .template-hero .cover-placeholder { aspect-ratio: 16 / 10; border-radius: 18px; }
+    .template-hero--compact { grid-template-columns: 1fr; text-align: center; }
+    .template-hero--compact .template-hero__copy { width: min(720px, 100%); margin: auto; }
+    .template-hero--compact .template-hero__media { width: min(780px, 100%); margin: auto; }
+    .template-hero--compact .cover, .template-hero--compact .cover-placeholder { aspect-ratio: 16 / 7; }
+    .template-hero--editorial { grid-template-columns: minmax(0, 1.2fr) minmax(190px, .8fr); }
+    .template-hero--editorial .cover, .template-hero--editorial .cover-placeholder { aspect-ratio: 5 / 4; }
+    .prose--reading { width: min(50rem, 100%); margin-inline: auto; }
+    .prose--wide { width: min(54rem, 100%); margin-inline: auto; }
+    .module-eyebrow { display: block; margin-bottom: 8px; color: var(--accent); font: 800 11px/1.3 Inter, ui-sans-serif, system-ui, sans-serif; letter-spacing: .14em; text-transform: uppercase; }
+    .media-text { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: center; gap: clamp(26px, 5vw, 58px); margin: 54px 0; }
+    .media-text--left .media-text__media { order: -1; }
+    .media-text__copy h2 { margin-top: 0; }
+    .media-text .body-image { margin: 0; }
+    .media-text .body-image img { min-height: 230px; object-fit: cover; }
+    .faq-section, .tutorial-module { margin: 58px 0; }
+    .faq-list { display: grid; gap: 10px; }
+    .faq-list details { padding: 0 18px; border: 1px solid var(--line); border-radius: 14px; background: color-mix(in srgb, var(--soft) 28%, var(--paper)); }
+    .faq-list summary { cursor: pointer; padding: 17px 0; font: 750 17px/1.4 Inter, ui-sans-serif, system-ui, sans-serif; }
+    .faq-answer { padding: 0 0 16px; }
+    .tutorial-layout { display: grid; grid-template-columns: minmax(150px, .35fr) minmax(0, 1fr); gap: 28px; align-items: start; }
+    .tutorial-nav { position: sticky; top: 18px; display: grid; gap: 8px; padding: 16px; border: 1px solid var(--line); border-radius: 14px; font: 13px/1.4 Inter, ui-sans-serif, system-ui, sans-serif; }
+    .tutorial-nav a { text-decoration: none; }
+    .tutorial-list { display: grid; gap: 28px; }
+    .tutorial-step { display: grid; grid-template-columns: 46px minmax(0, 1fr); gap: 16px; scroll-margin-top: 24px; }
+    .tutorial-step h3 { margin-top: 0; }
+    .step-number { display: grid; width: 42px; height: 42px; place-content: center; border-radius: 50%; background: var(--accent); color: #fff; font: 800 13px/1 Inter, ui-sans-serif, system-ui, sans-serif; }
+    .callout { margin: 28px 0; padding: 20px; border: 1px solid var(--line); border-left: 5px solid var(--accent); border-radius: 12px; background: color-mix(in srgb, var(--soft) 40%, var(--paper)); }
+    .callout--success { border-left-color: #16a34a; }
+    .callout--warning { border-left-color: #d97706; }
+    .callout--error { border-left-color: #dc2626; }
+    .callout > strong { display: block; font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
+    .table-scroll { margin: 34px 0; overflow-x: auto; border: 1px solid var(--line); border-radius: 14px; }
+    table { width: 100%; border-collapse: collapse; font: 14px/1.5 Inter, ui-sans-serif, system-ui, sans-serif; }
+    th, td { min-width: 140px; padding: 14px 16px; border: 1px solid var(--line); vertical-align: top; text-align: left; }
+    th { background: color-mix(in srgb, var(--soft) 70%, var(--paper)); }
+    th p, td p { margin: 0; }
+    .media-card { display: grid; grid-template-columns: minmax(150px, .45fr) minmax(0, 1fr); gap: 18px; align-items: center; margin: 30px 0; overflow: hidden; border: 1px solid var(--line); border-radius: 16px; background: color-mix(in srgb, var(--soft) 28%, var(--paper)); font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
+    .media-card__body { padding: 18px; }
+    .media-card__body > strong { display: block; font-size: 18px; }
+    .media-card__body p { margin: 8px 0; }
+    .media-poster, .local-video { display: block; width: 100%; aspect-ratio: 16 / 9; object-fit: cover; background: #080b0a; }
+    .media-poster--placeholder { display: grid; place-content: center; min-height: 170px; color: var(--muted); }
+    .media-card--attachment { grid-template-columns: auto minmax(0, 1fr); padding-left: 18px; }
+    .attachment-icon { display: grid; width: 58px; height: 58px; place-content: center; border-radius: 14px; background: var(--accent); color: #fff; font-size: 12px; font-weight: 900; }
+    .asset-meta { margin: 10px 0 0; font-size: 12px; }
+    .asset-meta div { display: grid; grid-template-columns: 56px minmax(0, 1fr); gap: 8px; }
+    .asset-meta dt { color: var(--muted); }
+    .asset-meta dd { margin: 0; overflow-wrap: anywhere; }
+    .asset-reference { overflow-wrap: anywhere; color: var(--muted); font-size: 12px; }
+    .cta-card { margin: 56px 0 12px; padding: clamp(26px, 5vw, 48px); border-radius: 20px; background: #101512; color: #fff; }
+    .cta-card--brand { background: #0f766e; }
+    .cta-card--light { border: 1px solid var(--line); background: var(--soft); color: var(--ink); }
+    .cta-card h2 { margin: 0; color: inherit; }
+    .cta-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 20px; }
+    .cta-action { padding: 10px 16px; border: 1px solid currentColor; border-radius: 999px; color: inherit; font: 750 14px/1.2 Inter, ui-sans-serif, system-ui, sans-serif; text-decoration: none; }
+    .cta-action--primary { border-color: #fff; background: #fff; color: #101512; }
+    .cta-card--light .cta-action--primary { border-color: var(--accent); background: var(--accent); color: #fff; }
     .seo-card { margin-top: 46px; padding: 18px; border: 1px solid var(--line); border-radius: 14px; background: color-mix(in srgb, var(--soft) 46%, var(--paper)); font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
     .seo-card__label { display: block; margin-bottom: 8px; color: var(--accent); font-size: 11px; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; }
     .seo-card h3 { margin: 18px 0 8px; font-size: 14px; }
@@ -23828,7 +24692,10 @@ function renderHtml(article, markdownSource, previewRevision4, localAssets) {
     .markdown-prose { width: min(760px, 100%); margin: 34px auto 0; }
     .unsafe-link { text-decoration: line-through; text-decoration-color: #dc2626; cursor: not-allowed; }
     footer { margin-top: 18px; color: var(--muted); text-align: center; font-size: 13px; }
-    @media (max-width: 840px) { .columns { grid-template-columns: 1fr; } .article { padding: 28px 22px; } h1 { font-size: 42px; } }
+    @container (max-width: 620px) { .template-hero { grid-template-columns: 1fr; } .media-text { grid-template-columns: 1fr; } .media-text__media { order: -1; } .tutorial-layout { grid-template-columns: 1fr; } .tutorial-nav { position: static; } }
+    @media (max-width: 840px) { .columns { grid-template-columns: 1fr; } .article { padding: 28px 22px; } h1 { font-size: 42px; } .template-hero { grid-template-columns: 1fr; margin: -28px -22px 36px; padding: 36px 22px; } .media-text { grid-template-columns: 1fr; } .media-text__media { order: -1; } .tutorial-layout { grid-template-columns: 1fr; } .tutorial-nav { position: static; } }
+    @media (max-width: 560px) { .shell { width: min(100% - 18px, 1120px); } .media-card { grid-template-columns: 1fr; } .media-card--attachment { grid-template-columns: auto minmax(0, 1fr); } .tutorial-step { grid-template-columns: 38px minmax(0, 1fr); } }
+    @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; } }
     @media (prefers-color-scheme: dark) { :root { --bg: #101512; --paper: #171d1a; --ink: #edf4ef; --muted: #a3ada7; --line: #344039; --accent: #5eead4; --soft: #183d36; } .hero, .article { box-shadow: none; } .seo-card strong { color: #8ab4ff; } }
   </style>
 </head>
@@ -23838,13 +24705,13 @@ function renderHtml(article, markdownSource, previewRevision4, localAssets) {
       <span><strong>Local draft preview</strong> \xB7 approximate production appearance</span>
       <nav aria-label="Languages"><a href="#en">English</a><a href="#zh">\u4E2D\u6587</a></nav>
     </div>
-    <section class="hero">
-      ${renderCover(article, localAssets)}
-      <div class="hero-meta"><span>/${escapeHtml(article.slug)}</span>${published}<span>Source: validated article JSON</span><span>Preview revision: ${escapeHtml(previewRevision4.slice(0, 12))}</span></div>
+    <section class="hero hero--${escapeHtml(template)}">
+      ${template === "default" ? renderCover(article, localAssets) : ""}
+      <div class="hero-meta"><span>/${escapeHtml(article.slug)}</span><span>Template: ${escapeHtml(template)}</span>${published}<span>Source: validated article JSON</span><span>Preview revision: ${escapeHtml(previewRevision4.slice(0, 12))}</span></div>
     </section>
     <section class="columns">
-      ${renderLocale(article, "en", "English", localAssets)}
-      ${renderLocale(article, "zh", "\u4E2D\u6587", localAssets)}
+      ${renderLocale(article, "en", "English", localAssets, template, preset)}
+      ${renderLocale(article, "zh", "\u4E2D\u6587", localAssets, template, preset)}
     </section>
     <details class="markdown-card" open>
       <summary>Markdown visual preview</summary>
@@ -23879,9 +24746,9 @@ async function writePreview(previewPath, source) {
     fail("PREVIEW_SIZE_INVALID", "The generated preview exceeds the 384 MiB limit.");
   }
   await assertReplaceablePreview(previewPath);
-  const temporaryPath = path5.join(
-    path5.dirname(previewPath),
-    `.${path5.basename(previewPath)}.${randomUUID()}.tmp`
+  const temporaryPath = path6.join(
+    path6.dirname(previewPath),
+    `.${path6.basename(previewPath)}.${randomUUID()}.tmp`
   );
   let handle;
   try {
@@ -23920,8 +24787,8 @@ async function renderArticlePreview(snapshot) {
     snapshot.articlePath,
     snapshot.slug
   );
-  const previewPath = path5.join(
-    path5.dirname(snapshot.articlePath),
+  const previewPath = path6.join(
+    path6.dirname(snapshot.articlePath),
     `${snapshot.slug}.preview.html`
   );
   const previewRevision4 = createHash2("sha256").update("content\0").update(snapshot.contentSha256).update("\0markdown\0").update(markdownSha256).digest("hex");
@@ -23951,12 +24818,16 @@ async function renderArticlePreview(snapshot) {
     markdownRendered: true,
     previewRevision: previewRevision4,
     slug: snapshot.slug,
+    template: snapshot.template ?? resolveBlogTemplate(snapshot.article.template),
     articlePath: snapshot.articlePath,
     markdownPath,
     ...coverPath ? { coverPath } : {},
     previewPath,
     previewUrl: pathToFileURL(previewPath).href,
     locales: ["en", "zh"],
+    localImageCount: snapshot.localImageCount,
+    localAssetCount: snapshot.localAssetCount,
+    assetCounts: snapshot.assetCounts,
     warnings
   };
 }
@@ -23975,7 +24846,7 @@ import {
   rm as rm4,
   writeFile
 } from "node:fs/promises";
-import path6 from "node:path";
+import path7 from "node:path";
 var SLUG_PATTERN3 = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 var RESERVATION_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 var PNG_SIGNATURE = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
@@ -23983,20 +24854,10 @@ var METADATA_FILE = "reservation.json";
 var CONTROL_MODE = 448;
 var FILE_MODE2 = 384;
 var MAX_STAGING_TEXT_BYTES = 2 * 1024 * 1024;
-var MAX_STAGING_COVER_BYTES = 20 * 1024 * 1024;
-var MAX_STAGING_ASSETS = 10;
-var MAX_STAGING_ASSET_TOTAL_BYTES = 256 * 1024 * 1024;
+var MAX_STAGING_ASSETS = MAX_LOCAL_ASSETS;
+var MAX_STAGING_ASSET_TOTAL_BYTES = MAX_TOTAL_ASSET_BYTES;
 var READ_CHUNK_BYTES = 64 * 1024;
-var SAFE_LOCAL_ASSET_PATH = /^\.\/assets\/([A-Za-z0-9][A-Za-z0-9._-]{0,127})$/u;
 var ASSET_TRANSACTION_LOCK = ".asset-transaction";
-var SUPPORTED_IMAGE_EXTENSIONS = /* @__PURE__ */ new Set([
-  ".avif",
-  ".gif",
-  ".jpeg",
-  ".jpg",
-  ".png",
-  ".webp"
-]);
 var WorkspaceError = class extends Error {
   constructor(code, message, details = void 0) {
     super(message);
@@ -24092,17 +24953,17 @@ function processPlatformIsPosix() {
 }
 function resolveWorkspace(config2) {
   const workspaceRoot = config2?.workspaceRoot;
-  if (typeof workspaceRoot !== "string" || workspaceRoot.length === 0 || !path6.isAbsolute(workspaceRoot)) {
+  if (typeof workspaceRoot !== "string" || workspaceRoot.length === 0 || !path7.isAbsolute(workspaceRoot)) {
     fail2("INVALID_WORKSPACE_ROOT", "Configured workspaceRoot must be an absolute path.");
   }
-  const root = path6.resolve(workspaceRoot);
-  const blogRoot = path6.join(root, "blog");
+  const root = path7.resolve(workspaceRoot);
+  const blogRoot = path7.join(root, "blog");
   return {
     root,
     blogRoot,
-    assetsRoot: path6.join(blogRoot, "assets"),
-    reservationsRoot: path6.join(blogRoot, ".reservations"),
-    stagingRoot: path6.join(blogRoot, ".staging")
+    assetsRoot: path7.join(blogRoot, "assets"),
+    reservationsRoot: path7.join(blogRoot, ".reservations"),
+    stagingRoot: path7.join(blogRoot, ".staging")
   };
 }
 async function openWorkspace(config2) {
@@ -24128,9 +24989,9 @@ async function openWorkspace(config2) {
 }
 function bundlePaths(basePath, slug3) {
   return {
-    markdownPath: path6.join(basePath, `${slug3}.md`),
-    articlePath: path6.join(basePath, `${slug3}.json`),
-    coverPath: path6.join(basePath, "assets", `${slug3}-cover.png`)
+    markdownPath: path7.join(basePath, `${slug3}.md`),
+    articlePath: path7.join(basePath, `${slug3}.json`),
+    coverPath: path7.join(basePath, "assets", `${slug3}-cover.png`)
   };
 }
 async function inspectBundle(basePath, slug3) {
@@ -24175,11 +25036,9 @@ function parseArticleForAssets(articleBytes) {
   return article;
 }
 function collectDeclaredLocalAssetNames(article) {
-  const assetNames = /* @__PURE__ */ new Set();
-  const appendLocalImage = (source, location) => {
-    if (!source || typeof source.path !== "string") {
-      return;
-    }
+  const assetNames = /* @__PURE__ */ new Map();
+  for (const { kind, source, location } of collectBlogAssetSources(article)) {
+    if (!source || typeof source.path !== "string") continue;
     const match = SAFE_LOCAL_ASSET_PATH.exec(source.path);
     if (!match) {
       fail2(
@@ -24188,38 +25047,31 @@ function collectDeclaredLocalAssetNames(article) {
       );
     }
     const filename = match[1];
-    if (!SUPPORTED_IMAGE_EXTENSIONS.has(path6.extname(filename).toLowerCase())) {
+    const definition = assetDefinitionForFilename(filename);
+    if (!definition || definition.kind !== kind) {
       fail2(
         "STAGING_BUNDLE_INVALID",
-        `${location} must reference a supported image file.`
+        `${location} must reference a supported ${kind} file.`
       );
     }
-    assetNames.add(filename);
-  };
-  appendLocalImage(article.coverImage?.source, "coverImage.source");
-  for (const locale of ["en", "zh"]) {
-    const body = article.body?.[locale];
-    if (!Array.isArray(body)) {
-      continue;
+    const identity = filename.toLowerCase();
+    const previous = assetNames.get(identity);
+    if (previous && previous !== filename) {
+      fail2(
+        "STAGING_BUNDLE_INVALID",
+        "Local asset filenames must be unique without case distinctions."
+      );
     }
-    for (const [index, item] of body.entries()) {
-      if (item?._type === "image") {
-        appendLocalImage(item.source, `body.${locale}.${index}.source`);
-      }
-    }
+    assetNames.set(identity, filename);
   }
-  appendLocalImage(
-    article.seo?.openGraph?.image?.source,
-    "seo.openGraph.image.source"
-  );
-  return [...assetNames].sort();
+  return [...assetNames.values()].sort();
 }
 function collectLocalAssetNames(article, slug3) {
   const referencedAssetNames = collectDeclaredLocalAssetNames(article);
   if (referencedAssetNames.length > MAX_STAGING_ASSETS) {
     fail2(
       "STAGING_BUNDLE_INVALID",
-      `The article bundle references more than ${MAX_STAGING_ASSETS} local images.`
+      `The article bundle references more than ${MAX_STAGING_ASSETS} local assets.`
     );
   }
   const assetNames = [.../* @__PURE__ */ new Set([`${slug3}-cover.png`, ...referencedAssetNames])];
@@ -24227,30 +25079,10 @@ function collectLocalAssetNames(article, slug3) {
   if (identities.size !== assetNames.length) {
     fail2(
       "STAGING_BUNDLE_INVALID",
-      "Local image filenames must be unique without case distinctions."
+      "Local asset filenames must be unique without case distinctions."
     );
   }
   return assetNames.sort();
-}
-function hasImageSignature2(bytes, extension) {
-  if (extension === ".png") {
-    return bytes.subarray(0, PNG_SIGNATURE.length).equals(PNG_SIGNATURE);
-  }
-  if (extension === ".jpg" || extension === ".jpeg") {
-    return bytes.length >= 3 && bytes[0] === 255 && bytes[1] === 216 && bytes[2] === 255;
-  }
-  if (extension === ".gif") {
-    const signature = bytes.subarray(0, 6).toString("ascii");
-    return signature === "GIF87a" || signature === "GIF89a";
-  }
-  if (extension === ".webp") {
-    return bytes.subarray(0, 4).toString("ascii") === "RIFF" && bytes.subarray(8, 12).toString("ascii") === "WEBP";
-  }
-  if (extension === ".avif") {
-    const box = bytes.subarray(0, 32).toString("ascii");
-    return box.slice(4, 8) === "ftyp" && /avif|avis/u.test(box.slice(8));
-  }
-  return false;
 }
 async function readCompleteBundle(bundle, slug3) {
   const [markdownBytes, articleBytes] = await Promise.all([
@@ -24269,21 +25101,28 @@ async function readCompleteBundle(bundle, slug3) {
   const assetNames = collectLocalAssetNames(article, slug3);
   const assetEntries = await Promise.all(
     assetNames.map(async (filename) => {
+      const definition = assetDefinitionForFilename(filename);
+      if (!definition) {
+        fail2(
+          "STAGING_BUNDLE_INVALID",
+          `The staged asset has an unsupported extension: ${filename}.`
+        );
+      }
       const bytes = await readStableStagingFile(
-        path6.join(path6.dirname(bundle.paths.coverPath), filename),
+        path7.join(path7.dirname(bundle.paths.coverPath), filename),
         {
-          label: `image asset ${filename}`,
-          maxBytes: MAX_STAGING_COVER_BYTES,
-          limitDescription: "20 MiB"
+          label: `${definition.kind} asset ${filename}`,
+          maxBytes: definition.maxBytes,
+          limitDescription: `${definition.maxBytes / (1024 * 1024)} MiB`
         }
       );
-      if (!hasImageSignature2(bytes, path6.extname(filename).toLowerCase())) {
+      if (!hasAssetSignature(bytes, definition)) {
         if (filename === `${slug3}-cover.png`) {
           fail2("STAGING_BUNDLE_INVALID", "The staged cover must be a PNG image.");
         }
         fail2(
           "STAGING_BUNDLE_INVALID",
-          `The staged image bytes do not match the extension: ${filename}.`
+          `The staged asset bytes do not match the extension: ${filename}.`
         );
       }
       return [filename, bytes];
@@ -24296,7 +25135,7 @@ async function readCompleteBundle(bundle, slug3) {
   if (totalAssetBytes > MAX_STAGING_ASSET_TOTAL_BYTES) {
     fail2(
       "STAGING_BUNDLE_INVALID",
-      "The staged image assets exceed the 256 MiB total limit."
+      "The staged assets exceed the 256 MiB total limit."
     );
   }
   return {
@@ -24341,7 +25180,7 @@ function sameBaseline(left, right) {
   return left?.state === right?.state && (left.state === "missing" || left?.digest === right?.digest);
 }
 async function writeReservationMetadata(lockPath, metadata) {
-  const metadataPath = path6.join(lockPath, METADATA_FILE);
+  const metadataPath = path7.join(lockPath, METADATA_FILE);
   try {
     await writeFile(metadataPath, `${JSON.stringify(metadata)}
 `, {
@@ -24355,7 +25194,7 @@ async function writeReservationMetadata(lockPath, metadata) {
   }
 }
 async function readReservationMetadata(workspace, slug3, reservationId3) {
-  const lockPath = path6.join(workspace.reservationsRoot, slug3);
+  const lockPath = path7.join(workspace.reservationsRoot, slug3);
   const lockKind = await getEntryKind(lockPath);
   if (lockKind === "missing") {
     fail2("RESERVATION_NOT_FOUND", "No active reservation exists for this slug.");
@@ -24363,7 +25202,7 @@ async function readReservationMetadata(workspace, slug3, reservationId3) {
   if (lockKind !== "directory") {
     fail2("UNSAFE_RESERVATION", "The reservation entry is not a regular directory.");
   }
-  const metadataPath = path6.join(lockPath, METADATA_FILE);
+  const metadataPath = path7.join(lockPath, METADATA_FILE);
   if (await getEntryKind(metadataPath) !== "file") {
     fail2("UNSAFE_RESERVATION", "The reservation metadata is not an ordinary file.");
   }
@@ -24379,7 +25218,7 @@ async function readReservationMetadata(workspace, slug3, reservationId3) {
   return { metadata, lockPath };
 }
 async function copyExistingBundle(source, destination, assetNames) {
-  await assertDirectory(path6.dirname(destination.coverPath), {
+  await assertDirectory(path7.dirname(destination.coverPath), {
     create: true,
     privateControl: true
   });
@@ -24387,8 +25226,8 @@ async function copyExistingBundle(source, destination, assetNames) {
     [source.markdownPath, destination.markdownPath],
     [source.articlePath, destination.articlePath],
     ...assetNames.map((filename) => [
-      path6.join(path6.dirname(source.coverPath), filename),
-      path6.join(path6.dirname(destination.coverPath), filename)
+      path7.join(path7.dirname(source.coverPath), filename),
+      path7.join(path7.dirname(destination.coverPath), filename)
     ])
   ]) {
     try {
@@ -24412,8 +25251,8 @@ async function prepare({ slug: slug3, config: config2, requireExisting }) {
   const mode = localBundle.state === "complete" ? "update" : "create";
   const baseline = await digestBundle(localBundle, slug3);
   const reservationId3 = randomUUID2();
-  const lockPath = path6.join(workspace.reservationsRoot, slug3);
-  const stagingPath = path6.join(workspace.stagingRoot, reservationId3);
+  const lockPath = path7.join(workspace.reservationsRoot, slug3);
+  const stagingPath = path7.join(workspace.stagingRoot, reservationId3);
   const stagingBundle = bundlePaths(stagingPath, slug3);
   let lockCreated = false;
   let stagingCreated = false;
@@ -24434,7 +25273,7 @@ async function prepare({ slug: slug3, config: config2, requireExisting }) {
     });
     stagingCreated = true;
     await assertDirectory(stagingPath, { privateControl: true });
-    await assertDirectory(path6.join(stagingPath, "assets"), {
+    await assertDirectory(path7.join(stagingPath, "assets"), {
       create: true,
       privateControl: true
     });
@@ -24578,7 +25417,7 @@ async function readStableStagingFile(entryPath, { label, maxBytes, limitDescript
   }
 }
 async function assertCommitReady(stagingBundle, slug3) {
-  const staged = await inspectBundle(path6.dirname(stagingBundle.markdownPath), slug3);
+  const staged = await inspectBundle(path7.dirname(stagingBundle.markdownPath), slug3);
   if (staged.state !== "complete") {
     fail2("STAGING_BUNDLE_INCOMPLETE", "The staging bundle must contain all three files.");
   }
@@ -24623,12 +25462,13 @@ async function assertCommitReady(stagingBundle, slug3) {
     "2 MiB"
   );
   for (const [filename, bytes] of snapshot.assetEntries) {
+    const definition = assetDefinitionForFilename(filename);
     addValidatedSource(
-      path6.join(path6.dirname(stagingBundle.coverPath), filename),
+      path7.join(path7.dirname(stagingBundle.coverPath), filename),
       bytes,
-      `image asset ${filename}`,
-      MAX_STAGING_COVER_BYTES,
-      "20 MiB"
+      `${definition.kind} asset ${filename}`,
+      definition.maxBytes,
+      `${definition.maxBytes / (1024 * 1024)} MiB`
     );
   }
   return {
@@ -24679,7 +25519,7 @@ async function assertExclusiveAssetOwnership(workspace, slug3, candidateNames) {
     if (otherSlug === slug3 || otherSlug.length > 96 || !SLUG_PATTERN3.test(otherSlug)) {
       continue;
     }
-    const articlePath3 = path6.join(workspace.blogRoot, entryName);
+    const articlePath3 = path7.join(workspace.blogRoot, entryName);
     if (await getEntryKind(articlePath3) !== "file") {
       fail2(
         "UNSAFE_WORKSPACE_ENTRY",
@@ -24724,13 +25564,13 @@ async function assertExclusiveAssetOwnership(workspace, slug3, candidateNames) {
     if (conflict) {
       fail2(
         "ASSET_OWNERSHIP_CONFLICT",
-        `The image asset ${conflict} is also owned by another local article.`
+        `The asset ${conflict} is also owned by another local article.`
       );
     }
   }
 }
 async function acquireAssetTransactionLock(workspace) {
-  const lockPath = path6.join(workspace.reservationsRoot, ASSET_TRANSACTION_LOCK);
+  const lockPath = path7.join(workspace.reservationsRoot, ASSET_TRANSACTION_LOCK);
   try {
     await mkdir3(lockPath, { recursive: false, mode: CONTROL_MODE });
   } catch (error2) {
@@ -24774,12 +25614,12 @@ function transactionPairs(stagingBundle, destinationBundle, backupRoot, slug3, {
   const allAssets = [.../* @__PURE__ */ new Set([...previousAssets, ...nextAssets])].sort();
   for (const filename of allAssets) {
     pairs.push({
-      source: nextAssets.has(filename) ? path6.join(path6.dirname(stagingBundle.coverPath), filename) : null,
-      destination: path6.join(path6.dirname(destinationBundle.coverPath), filename),
-      backup: path6.join(path6.dirname(backupBundle.coverPath), filename),
+      source: nextAssets.has(filename) ? path7.join(path7.dirname(stagingBundle.coverPath), filename) : null,
+      destination: path7.join(path7.dirname(destinationBundle.coverPath), filename),
+      backup: path7.join(path7.dirname(backupBundle.coverPath), filename),
       destinationExists: previousAssets.has(filename),
       expected: nextAssets.has(filename) ? validatedSources.get(
-        path6.join(path6.dirname(stagingBundle.coverPath), filename)
+        path7.join(path7.dirname(stagingBundle.coverPath), filename)
       ) : null
     });
   }
@@ -24882,8 +25722,8 @@ async function commitReservation({
     slug3,
     reservationId3
   );
-  const stagingPath = path6.join(workspace.stagingRoot, reservationId3);
-  const stagingAssetsPath = path6.join(stagingPath, "assets");
+  const stagingPath = path7.join(workspace.stagingRoot, reservationId3);
+  const stagingAssetsPath = path7.join(stagingPath, "assets");
   if (await getEntryKind(stagingPath) !== "directory" || await getEntryKind(stagingAssetsPath) !== "directory") {
     fail2("INVALID_RESERVATION", "The reservation staging directory is missing or unsafe.");
   }
@@ -24907,12 +25747,12 @@ async function commitReservation({
       slug3,
       [.../* @__PURE__ */ new Set([...current.assetNames, ...staged.assetNames])]
     );
-    const backupRoot = path6.join(stagingPath, ".backup");
+    const backupRoot = path7.join(stagingPath, ".backup");
     await assertDirectory(backupRoot, {
       create: true,
       privateControl: true
     });
-    await assertDirectory(path6.join(backupRoot, "assets"), {
+    await assertDirectory(path7.join(backupRoot, "assets"), {
       create: true,
       privateControl: true
     });
@@ -25005,7 +25845,7 @@ async function releaseReservation({ slug: slug3, reservationId: reservationId3, 
   assertReservationId(reservationId3);
   const workspace = await openWorkspace(config2);
   const { lockPath } = await readReservationMetadata(workspace, slug3, reservationId3);
-  const stagingPath = path6.join(workspace.stagingRoot, reservationId3);
+  const stagingPath = path7.join(workspace.stagingRoot, reservationId3);
   try {
     await rm4(stagingPath, { recursive: true, force: true });
     await rm4(lockPath, { recursive: true, force: true });
@@ -25061,6 +25901,14 @@ function confirmedReceipt(operation, result) {
     requestId: result.requestId,
     uploadedAssetIds: [...result.uploadedAssetIds],
     target: { ...result.target }
+  };
+}
+function articleSnapshotDetails(snapshot) {
+  return {
+    template: snapshot.template,
+    localImageCount: snapshot.localImageCount,
+    localAssetCount: snapshot.localAssetCount,
+    assetCounts: snapshot.assetCounts
   };
 }
 function createBlogService({
@@ -25255,6 +26103,7 @@ function createBlogService({
           slug: articleSnapshot.slug,
           articlePath: articleSnapshot.articlePath,
           previewRevision: previewRevision4,
+          ...articleSnapshotDetails(articleSnapshot),
           ...outcome.mode === "create" ? { publishedAt: outcome.createPublishedAt } : {
             id: outcome.probe.id,
             revision: outcome.probe.revision
@@ -25280,6 +26129,7 @@ function createBlogService({
           slug: articleSnapshot.slug,
           articlePath: articleSnapshot.articlePath,
           previewRevision: previewRevision4,
+          ...articleSnapshotDetails(articleSnapshot),
           id: outcome.result.id,
           revision: outcome.result.revision,
           requestId: outcome.result.requestId,
@@ -25316,6 +26166,7 @@ function createBlogService({
           ...final.result,
           articlePath: articleSnapshot.articlePath,
           previewRevision: previewRevision4,
+          ...articleSnapshotDetails(articleSnapshot),
           recordPath
         };
       });
@@ -25345,6 +26196,7 @@ function createBlogService({
           ...final.result,
           articlePath: articleSnapshot.articlePath,
           previewRevision: previewRevision4,
+          ...articleSnapshotDetails(articleSnapshot),
           recordPath
         };
       });
@@ -25360,8 +26212,8 @@ import {
   open as open5,
   realpath as realpath3
 } from "node:fs/promises";
-import path7 from "node:path";
-import { TextDecoder as TextDecoder2 } from "node:util";
+import path8 from "node:path";
+import { TextDecoder as TextDecoder3 } from "node:util";
 
 // src/content-types.mjs
 var CONTENT_TYPE_IDS = Object.freeze([
@@ -25437,11 +26289,11 @@ function getContentTypeDefinition(contentType2) {
 
 // src/content-article.mjs
 var MAX_ARTICLE_BYTES2 = 2 * 1024 * 1024;
-var MAX_IMAGE_BYTES = 20 * 1024 * 1024;
-var MAX_VIDEO_BYTES = 100 * 1024 * 1024;
-var MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024;
-var MAX_LOCAL_ASSETS = 10;
-var MAX_TOTAL_ASSET_BYTES = 256 * 1024 * 1024;
+var MAX_IMAGE_BYTES2 = 20 * 1024 * 1024;
+var MAX_VIDEO_BYTES2 = 100 * 1024 * 1024;
+var MAX_ATTACHMENT_BYTES2 = 20 * 1024 * 1024;
+var MAX_LOCAL_ASSETS2 = 10;
+var MAX_TOTAL_ASSET_BYTES2 = 256 * 1024 * 1024;
 var SAFE_LOCAL_ASSET_PATH2 = /^\.\/assets\/[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u;
 var SAFE_KEY2 = /^[A-Za-z0-9_-]+$/u;
 var SLUG_PATTERN4 = /^[a-z0-9]+(?:-[a-z0-9]+)*$/u;
@@ -25488,9 +26340,9 @@ var ASSET_FORMATS = /* @__PURE__ */ new Map([
   ]
 ]);
 var ASSET_LIMITS = Object.freeze({
-  image: MAX_IMAGE_BYTES,
-  video: MAX_VIDEO_BYTES,
-  attachment: MAX_ATTACHMENT_BYTES
+  image: MAX_IMAGE_BYTES2,
+  video: MAX_VIDEO_BYTES2,
+  attachment: MAX_ATTACHMENT_BYTES2
 });
 var ContentArticleValidationError = class extends Error {
   constructor(code, message, details, options) {
@@ -25597,7 +26449,7 @@ var spanSchema = external_exports.object({
   text: external_exports.string(),
   marks: external_exports.array(external_exports.string().min(1)).default([])
 }).strict();
-function createBlockSchema(styles) {
+function createBlockSchema2(styles) {
   return external_exports.object({
     _type: external_exports.literal("block"),
     _key: keySchema,
@@ -25616,7 +26468,7 @@ function createBlockSchema(styles) {
     }
   });
 }
-var richBlockSchema = createBlockSchema([
+var richBlockSchema = createBlockSchema2([
   "normal",
   "h2",
   "h3",
@@ -25625,7 +26477,7 @@ var richBlockSchema = createBlockSchema([
   "h6",
   "blockquote"
 ]);
-var nestedBlockSchema = createBlockSchema(["normal"]);
+var nestedBlockSchema = createBlockSchema2(["normal"]);
 var cropSchema = external_exports.object({
   _type: external_exports.literal("sanity.imageCrop").optional(),
   top: external_exports.number().min(0).max(1),
@@ -25663,7 +26515,7 @@ var posterSchema = external_exports.object({
   hotspot: hotspotSchema.optional()
 }).strict();
 var hasHostname = (hostname2, allowed) => hostname2 === allowed || hostname2.endsWith(`.${allowed}`);
-function isAllowedExternalVideoUrl(value) {
+function isAllowedExternalVideoUrl2(value) {
   try {
     const url = new URL(value);
     if (url.protocol !== "https:" || url.username || url.password || !url.hostname) {
@@ -25699,7 +26551,7 @@ var externalVideoSchema = external_exports.object({
   _key: keySchema,
   sourceType: external_exports.literal("external"),
   url: nonEmptyString("Video URL", 2048).refine(
-    isAllowedExternalVideoUrl,
+    isAllowedExternalVideoUrl2,
     "External video URL is not on the supported HTTPS allowlist."
   ),
   title: nonEmptyString("Video title", 240),
@@ -25738,16 +26590,16 @@ var tableSchema = external_exports.object({
   _key: keySchema,
   headerRows: external_exports.number().int().min(0).max(1).default(1),
   rows: external_exports.array(tableRowSchema).min(1, "A table requires at least one row.")
-}).strict().superRefine((table, context) => {
-  if (table.headerRows > table.rows.length) {
+}).strict().superRefine((table2, context) => {
+  if (table2.headerRows > table2.rows.length) {
     context.addIssue({
       code: external_exports.ZodIssueCode.custom,
       path: ["headerRows"],
       message: "headerRows cannot exceed the number of rows."
     });
   }
-  const width = table.rows[0]?.cells.length;
-  table.rows.forEach((row, index) => {
+  const width = table2.rows[0]?.cells.length;
+  table2.rows.forEach((row, index) => {
     if (row.cells.length !== width) {
       context.addIssue({
         code: external_exports.ZodIssueCode.custom,
@@ -25896,15 +26748,15 @@ var contentArticleSchema = external_exports.object({
   body: richBodySchema,
   seo: contentSeoSchema.nullable().optional()
 }).strict();
-var stableKey = (scope, value) => {
+var stableKey2 = (scope, value) => {
   const cleanValue = { ...value };
   delete cleanValue._key;
   return `k_${createHash4("sha256").update(`${scope}:${JSON.stringify(cleanValue)}`).digest("hex").slice(0, 16)}`;
 };
-function assignKeys(items, scope, issues) {
+function assignKeys2(items, scope, issues) {
   const used = /* @__PURE__ */ new Set();
   items.forEach((item, index) => {
-    const key = item._key || stableKey(`${scope}.${index}`, item);
+    const key = item._key || stableKey2(`${scope}.${index}`, item);
     if (used.has(key)) {
       issues.push({
         path: [...scope.split("."), index, "_key"],
@@ -25915,8 +26767,8 @@ function assignKeys(items, scope, issues) {
     item._key = key;
   });
 }
-function normalizeBlocks(items, scope, issues) {
-  assignKeys(items, scope, issues);
+function normalizeBlocks2(items, scope, issues) {
+  assignKeys2(items, scope, issues);
   const decorators = /* @__PURE__ */ new Set([
     "strong",
     "em",
@@ -25926,8 +26778,8 @@ function normalizeBlocks(items, scope, issues) {
   ]);
   items.forEach((block, blockIndex) => {
     const blockScope = `${scope}.${blockIndex}`;
-    assignKeys(block.markDefs, `${blockScope}.markDefs`, issues);
-    assignKeys(block.children, `${blockScope}.children`, issues);
+    assignKeys2(block.markDefs, `${blockScope}.markDefs`, issues);
+    assignKeys2(block.children, `${blockScope}.children`, issues);
     const annotationKeys = new Set(
       block.markDefs.map((definition) => definition._key)
     );
@@ -25950,9 +26802,9 @@ function normalizeBlocks(items, scope, issues) {
     });
   });
 }
-function normalizePortableText(items, locale, issues) {
+function normalizePortableText2(items, locale, issues) {
   const scope = `body.${locale}`;
-  assignKeys(items, scope, issues);
+  assignKeys2(items, scope, issues);
   const decorators = /* @__PURE__ */ new Set([
     "strong",
     "em",
@@ -25963,8 +26815,8 @@ function normalizePortableText(items, locale, issues) {
   items.forEach((item, itemIndex) => {
     const itemScope = `${scope}.${itemIndex}`;
     if (item._type === "block") {
-      assignKeys(item.markDefs, `${itemScope}.markDefs`, issues);
-      assignKeys(item.children, `${itemScope}.children`, issues);
+      assignKeys2(item.markDefs, `${itemScope}.markDefs`, issues);
+      assignKeys2(item.children, `${itemScope}.children`, issues);
       const annotationKeys = new Set(
         item.markDefs.map((definition) => definition._key)
       );
@@ -25989,16 +26841,16 @@ function normalizePortableText(items, locale, issues) {
       return;
     }
     if (item._type === "callout") {
-      normalizeBlocks(item.body, `${itemScope}.body`, issues);
+      normalizeBlocks2(item.body, `${itemScope}.body`, issues);
       return;
     }
     if (item._type === "table") {
-      assignKeys(item.rows, `${itemScope}.rows`, issues);
+      assignKeys2(item.rows, `${itemScope}.rows`, issues);
       item.rows.forEach((row, rowIndex) => {
         const rowScope = `${itemScope}.rows.${rowIndex}`;
-        assignKeys(row.cells, `${rowScope}.cells`, issues);
+        assignKeys2(row.cells, `${rowScope}.cells`, issues);
         row.cells.forEach((cell, cellIndex) => {
-          normalizeBlocks(
+          normalizeBlocks2(
             cell.value,
             `${rowScope}.cells.${cellIndex}.value`,
             issues
@@ -26091,8 +26943,8 @@ function parseContentArticle(candidate, contentType2, publicSiteOrigin2) {
       }
     }
   }
-  normalizePortableText(article.body.en, "en", issues);
-  normalizePortableText(article.body.zh, "zh", issues);
+  normalizePortableText2(article.body.en, "en", issues);
+  normalizePortableText2(article.body.zh, "zh", issues);
   if (issues.length > 0) {
     throw validationError(
       "ARTICLE_SCHEMA_INVALID",
@@ -26110,8 +26962,8 @@ function deepFreeze2(value) {
   return Object.freeze(value);
 }
 function isInside2(root, candidate) {
-  const relative = path7.relative(root, candidate);
-  return relative === "" || relative !== ".." && !relative.startsWith(`..${path7.sep}`) && !path7.isAbsolute(relative);
+  const relative = path8.relative(root, candidate);
+  return relative === "" || relative !== ".." && !relative.startsWith(`..${path8.sep}`) && !path8.isAbsolute(relative);
 }
 function sameFileIdentity(left, right) {
   return left.dev === right.dev && (left.ino === 0 || right.ino === 0 || left.ino === right.ino);
@@ -26130,40 +26982,40 @@ async function requireOrdinaryDirectory(directoryPath, code, message) {
   }
 }
 async function inspectArticleFile2(contentType2, articlePath3, config2) {
-  if (!config2 || typeof config2.workspaceRoot !== "string" || !path7.isAbsolute(config2.workspaceRoot)) {
+  if (!config2 || typeof config2.workspaceRoot !== "string" || !path8.isAbsolute(config2.workspaceRoot)) {
     throw validationError(
       "WORKSPACE_ROOT_REQUIRED",
       "A fixed absolute config.workspaceRoot is required."
     );
   }
-  const workspaceRoot = path7.resolve(config2.workspaceRoot);
+  const workspaceRoot = path8.resolve(config2.workspaceRoot);
   await requireOrdinaryDirectory(
     workspaceRoot,
     "WORKSPACE_ROOT_INVALID",
     "The configured workspace root is missing or unsafe."
   );
-  const contentsRoot = path7.join(workspaceRoot, "contents");
+  const contentsRoot = path8.join(workspaceRoot, "contents");
   await requireOrdinaryDirectory(
     contentsRoot,
     "CONTENTS_DIRECTORY_INVALID",
     "The configured contents directory is missing or unsafe."
   );
-  if (typeof articlePath3 !== "string" || articlePath3.length === 0 || !path7.isAbsolute(articlePath3)) {
+  if (typeof articlePath3 !== "string" || articlePath3.length === 0 || !path8.isAbsolute(articlePath3)) {
     throw validationError(
       "ARTICLE_PATH_INVALID",
       "articlePath must be an absolute path."
     );
   }
-  const requested = path7.resolve(articlePath3);
-  const liveTypeRoot = path7.join(contentsRoot, contentType2);
-  const liveArticleDirectory = path7.dirname(requested);
-  const isLivePath = path7.dirname(liveArticleDirectory) === liveTypeRoot;
-  const stagingRoot = path7.join(contentsRoot, ".staging");
-  const stagingTypeRoot = path7.join(stagingRoot, contentType2);
-  const stagingArticleDirectory = path7.dirname(requested);
-  const reservationDirectory = path7.dirname(stagingArticleDirectory);
-  const reservationId3 = path7.basename(reservationDirectory);
-  const isStagingPath = path7.dirname(reservationDirectory) === stagingTypeRoot && UUID_V4_PATTERN.test(reservationId3);
+  const requested = path8.resolve(articlePath3);
+  const liveTypeRoot = path8.join(contentsRoot, contentType2);
+  const liveArticleDirectory = path8.dirname(requested);
+  const isLivePath = path8.dirname(liveArticleDirectory) === liveTypeRoot;
+  const stagingRoot = path8.join(contentsRoot, ".staging");
+  const stagingTypeRoot = path8.join(stagingRoot, contentType2);
+  const stagingArticleDirectory = path8.dirname(requested);
+  const reservationDirectory = path8.dirname(stagingArticleDirectory);
+  const reservationId3 = path8.basename(reservationDirectory);
+  const isStagingPath = path8.dirname(reservationDirectory) === stagingTypeRoot && UUID_V4_PATTERN.test(reservationId3);
   if (!isLivePath && !isStagingPath) {
     throw validationError(
       "ARTICLE_LOCATION_INVALID",
@@ -26207,7 +27059,7 @@ async function inspectArticleFile2(contentType2, articlePath3, config2) {
   let resolvedArticle;
   try {
     metadata = await lstat6(requested);
-    if (!metadata.isFile() || metadata.isSymbolicLink() || path7.extname(requested).toLowerCase() !== ".json") {
+    if (!metadata.isFile() || metadata.isSymbolicLink() || path8.extname(requested).toLowerCase() !== ".json") {
       throw new Error("not an ordinary JSON file");
     }
     resolvedArticle = await realpath3(requested);
@@ -26257,7 +27109,7 @@ async function inspectArticleFile2(contentType2, articlePath3, config2) {
   }
   let candidate;
   try {
-    const source = new TextDecoder2("utf-8", { fatal: true }).decode(
+    const source = new TextDecoder3("utf-8", { fatal: true }).decode(
       articleBytes
     );
     candidate = JSON.parse(source);
@@ -26277,7 +27129,7 @@ async function inspectArticleFile2(contentType2, articlePath3, config2) {
     contentType2,
     publicSiteOrigin2
   );
-  if (path7.basename(resolvedArticle, ".json") !== article.slug || path7.basename(path7.dirname(resolvedArticle)) !== article.slug) {
+  if (path8.basename(resolvedArticle, ".json") !== article.slug || path8.basename(path8.dirname(resolvedArticle)) !== article.slug) {
     throw validationError(
       "ARTICLE_SLUG_MISMATCH",
       "The article slug must match both its directory and JSON filename."
@@ -26294,7 +27146,7 @@ function appendAssetReference(references, kind, source, location) {
     references.push({ kind, sourcePath: source.path, location });
   }
 }
-function collectLocalAssetReferences(article) {
+function collectLocalAssetReferences2(article) {
   const references = [];
   appendAssetReference(
     references,
@@ -26397,10 +27249,10 @@ function detectVideoFormat(bytes) {
   }
   return null;
 }
-function isUtf8Text(bytes) {
+function isUtf8Text2(bytes) {
   if (bytes.includes(0)) return false;
   try {
-    new TextDecoder2("utf-8", { fatal: true }).decode(bytes);
+    new TextDecoder3("utf-8", { fatal: true }).decode(bytes);
     return true;
   } catch {
     return false;
@@ -26411,7 +27263,7 @@ function detectAttachmentFormat(bytes, expectedFormat) {
     return bytes.subarray(0, 5).toString("ascii") === "%PDF-" ? "pdf" : null;
   }
   if (expectedFormat === "txt" || expectedFormat === "csv") {
-    return isUtf8Text(bytes) ? expectedFormat : null;
+    return isUtf8Text2(bytes) ? expectedFormat : null;
   }
   if (!bytes.subarray(0, 4).equals(Buffer.from([80, 75, 3, 4])) && !bytes.subarray(0, 4).equals(Buffer.from([80, 75, 5, 6]))) {
     return null;
@@ -26436,8 +27288,8 @@ function detectedFormat(kind, bytes, expectedFormat) {
 }
 async function inspectAsset(assetRoot, reference) {
   const filename = reference.sourcePath.slice("./assets/".length);
-  const candidate = path7.join(assetRoot, filename);
-  const definition = ASSET_FORMATS.get(path7.extname(filename).toLowerCase());
+  const candidate = path8.join(assetRoot, filename);
+  const definition = ASSET_FORMATS.get(path8.extname(filename).toLowerCase());
   if (!definition || definition.kind !== reference.kind) {
     throw validationError(
       "ASSET_FORMAT_INVALID",
@@ -26526,20 +27378,20 @@ async function inspectAsset(assetRoot, reference) {
   };
 }
 async function inspectAssets2(article, articlePath3) {
-  const references = collectLocalAssetReferences(article);
+  const references = collectLocalAssetReferences2(article);
   const uniqueReferences = /* @__PURE__ */ new Map();
   for (const reference of references) {
     const identity = `${reference.kind}:${reference.sourcePath}`;
     uniqueReferences.set(identity, reference);
   }
-  if (uniqueReferences.size > MAX_LOCAL_ASSETS) {
+  if (uniqueReferences.size > MAX_LOCAL_ASSETS2) {
     throw validationError(
       "ASSET_COUNT_EXCEEDED",
-      `An article may reference at most ${MAX_LOCAL_ASSETS} local assets.`
+      `An article may reference at most ${MAX_LOCAL_ASSETS2} local assets.`
     );
   }
   if (uniqueReferences.size === 0) return [];
-  const assetRoot = path7.join(path7.dirname(articlePath3), "assets");
+  const assetRoot = path8.join(path8.dirname(articlePath3), "assets");
   await requireOrdinaryDirectory(
     assetRoot,
     "ASSET_DIRECTORY_INVALID",
@@ -26569,17 +27421,17 @@ async function inspectAssets2(article, articlePath3) {
     if (!previous) byResolvedPath.set(identity, asset);
   }
   const assets = [...byResolvedPath.values()];
-  if (assets.length > MAX_LOCAL_ASSETS) {
+  if (assets.length > MAX_LOCAL_ASSETS2) {
     throw validationError(
       "ASSET_COUNT_EXCEEDED",
-      `An article may reference at most ${MAX_LOCAL_ASSETS} local assets.`
+      `An article may reference at most ${MAX_LOCAL_ASSETS2} local assets.`
     );
   }
   const totalBytes = assets.reduce((sum, asset) => sum + asset.size, 0);
-  if (totalBytes > MAX_TOTAL_ASSET_BYTES) {
+  if (totalBytes > MAX_TOTAL_ASSET_BYTES2) {
     throw validationError(
       "ASSET_TOTAL_SIZE_EXCEEDED",
-      `Article local assets exceed the ${MAX_TOTAL_ASSET_BYTES} byte combined limit.`
+      `Article local assets exceed the ${MAX_TOTAL_ASSET_BYTES2} byte combined limit.`
     );
   }
   return assets;
@@ -26683,7 +27535,7 @@ function materializeContentRequest(snapshot, { createPublishedAt } = {}) {
   body.append(
     "article",
     new Blob([articleBytes], { type: "application/json" }),
-    path7.basename(state.articlePath)
+    path8.basename(state.articlePath)
   );
   for (const asset of state.assets) {
     body.append(
@@ -27055,7 +27907,7 @@ import {
 } from "node:fs/promises";
 import crypto2 from "node:crypto";
 import os4 from "node:os";
-import path8 from "node:path";
+import path9 from "node:path";
 var CONTENT_TYPES2 = new Set(CONTENT_TYPE_IDS);
 var SLUG_PATTERN5 = /^[a-z0-9]+(?:-[a-z0-9]+)*$/u;
 var SAFE_IMAGE_ASSET_ID2 = /^image-[A-Za-z0-9]+-[0-9]+x[0-9]+-(?:jpg|jpeg|png|gif|webp|avif)$/iu;
@@ -27300,9 +28152,9 @@ async function assertTargetIsSafe2(targetPath) {
   }
 }
 async function writeRecordAtomically2(targetPath, source, permissions) {
-  const temporaryPath = path8.join(
-    path8.dirname(targetPath),
-    `.${path8.basename(targetPath)}.${process.pid}.${crypto2.randomUUID()}.tmp`
+  const temporaryPath = path9.join(
+    path9.dirname(targetPath),
+    `.${path9.basename(targetPath)}.${process.pid}.${crypto2.randomUUID()}.tmp`
   );
   let handle;
   try {
@@ -27363,9 +28215,9 @@ async function writeContentPublicationRecord({
     platform: options.platform ?? platform,
     acl: options.acl ?? acl
   };
-  const contentsDirectory = path8.join(publishedDirectory, "contents");
-  const typeDirectory = path8.join(contentsDirectory, record2.contentType);
-  const targetPath = path8.join(typeDirectory, `${record2.result.slug}.json`);
+  const contentsDirectory = path9.join(publishedDirectory, "contents");
+  const typeDirectory = path9.join(contentsDirectory, record2.contentType);
+  const targetPath = path9.join(typeDirectory, `${record2.result.slug}.json`);
   return enqueue2(targetPath, async () => {
     try {
       const configStats = await lstat7(configDirectory);
@@ -27413,14 +28265,14 @@ import {
   rename as rename6,
   rm as rm6
 } from "node:fs/promises";
-import path9 from "node:path";
+import path10 from "node:path";
 import { pathToFileURL as pathToFileURL2 } from "node:url";
 var MAX_MARKDOWN_BYTES2 = 2 * 1024 * 1024;
 var MAX_PREVIEW_BYTES2 = 384 * 1024 * 1024;
 var FILE_MODE3 = 384;
 var SHA256_PATTERN2 = /^[0-9a-f]{64}$/u;
 var SAFE_SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/u;
-var SAFE_IMAGE_MIME_TYPES2 = /* @__PURE__ */ new Set([
+var SAFE_IMAGE_MIME_TYPES = /* @__PURE__ */ new Set([
   "image/avif",
   "image/gif",
   "image/jpeg",
@@ -27486,7 +28338,7 @@ function sameFileSnapshot3(left, right) {
   return left.dev === right.dev && left.ino === right.ino && left.size === right.size && left.mtimeNs === right.mtimeNs && left.ctimeNs === right.ctimeNs;
 }
 async function inspectMarkdown2(articlePath3, slug3) {
-  const markdownPath = path9.join(path9.dirname(articlePath3), `${slug3}.md`);
+  const markdownPath = path10.join(path10.dirname(articlePath3), `${slug3}.md`);
   let pathInfo;
   let resolved;
   try {
@@ -27674,10 +28526,10 @@ function renderMarkdown2(source) {
 function sourcePath(source) {
   return source && typeof source === "object" && typeof source.path === "string" ? source.path : void 0;
 }
-function sourceReference(source) {
+function sourceReference2(source) {
   if (!source || typeof source !== "object") return "Unspecified asset";
   if (typeof source.assetRef === "string") return source.assetRef;
-  if (typeof source.path === "string") return path9.basename(source.path);
+  if (typeof source.path === "string") return path10.basename(source.path);
   return "Unspecified asset";
 }
 function inspectPreviewAssets(snapshot) {
@@ -27793,7 +28645,7 @@ function imageDataUrl(source, context) {
   const localPath = sourcePath(source);
   if (!localPath) return void 0;
   const asset = context.byPath.get(localPath);
-  if (!asset || asset.kind !== "image" || !SAFE_IMAGE_MIME_TYPES2.has(asset.mimeType)) {
+  if (!asset || asset.kind !== "image" || !SAFE_IMAGE_MIME_TYPES.has(asset.mimeType)) {
     return void 0;
   }
   return `data:${asset.mimeType};base64,${asset.bytes.toString("base64")}`;
@@ -27863,7 +28715,7 @@ function renderCode2(item) {
     <pre><code>${escapeHtml2(item.code)}</code></pre>
   </figure>`;
 }
-function renderPoster(poster, locale, context) {
+function renderPoster2(poster, locale, context) {
   if (!poster) return "";
   const dataUrl = imageDataUrl(poster.source ?? poster, context);
   const alt = localized2(poster.alt, locale, "Video poster");
@@ -27873,10 +28725,10 @@ function renderPoster(poster, locale, context) {
   context.counts.remoteImages += 1;
   return `<div class="media-poster media-poster--placeholder" role="img" aria-label="${escapeHtml2(alt)}">Remote poster image</div>`;
 }
-function renderVideo(item, locale, context) {
+function renderVideo2(item, locale, context) {
   const title = localized2(item.title, locale, "Video");
   const caption = localized2(item.caption, locale);
-  const poster = renderPoster(item.poster, locale, context);
+  const poster = renderPoster2(item.poster, locale, context);
   if (item.sourceType === "external") {
     context.counts.externalVideos += 1;
     const link = safeExternalVideoHref(item.url) ? `<a class="media-link" href="${escapeHtml2(item.url)}" target="_blank" rel="noopener noreferrer">Open external video</a>` : '<span class="unsafe-link">External video URL omitted</span>';
@@ -27901,13 +28753,13 @@ function renderVideo(item, locale, context) {
       <strong>${escapeHtml2(title)}</strong>
       ${caption ? `<p>${escapeHtml2(caption)}</p>` : ""}
       <dl class="asset-meta">
-        <div><dt>Asset</dt><dd>${escapeHtml2(asset?.filename ?? sourceReference(item.source))}</dd></div>
-        ${asset ? `<div><dt>Type</dt><dd>${escapeHtml2(asset.mimeType)}</dd></div><div><dt>Size</dt><dd>${escapeHtml2(formatBytes(asset.size))}</dd></div>` : ""}
+        <div><dt>Asset</dt><dd>${escapeHtml2(asset?.filename ?? sourceReference2(item.source))}</dd></div>
+        ${asset ? `<div><dt>Type</dt><dd>${escapeHtml2(asset.mimeType)}</dd></div><div><dt>Size</dt><dd>${escapeHtml2(formatBytes2(asset.size))}</dd></div>` : ""}
       </dl>
     </div>
   </figure>`;
 }
-function renderAttachment(item, locale, context) {
+function renderAttachment2(item, locale, context) {
   const title = localized2(item.title, locale, "Attachment");
   const localPath = sourcePath(item.source);
   const asset = localPath ? context.byPath.get(localPath) : void 0;
@@ -27919,13 +28771,13 @@ function renderAttachment(item, locale, context) {
       <span class="eyebrow">Attachment \xB7 metadata only</span>
       <strong>${escapeHtml2(title)}</strong>
       <dl class="asset-meta">
-        <div><dt>Asset</dt><dd>${escapeHtml2(asset?.filename ?? sourceReference(item.source))}</dd></div>
-        ${asset ? `<div><dt>Type</dt><dd>${escapeHtml2(asset.mimeType)}</dd></div><div><dt>Size</dt><dd>${escapeHtml2(formatBytes(asset.size))}</dd></div>` : ""}
+        <div><dt>Asset</dt><dd>${escapeHtml2(asset?.filename ?? sourceReference2(item.source))}</dd></div>
+        ${asset ? `<div><dt>Type</dt><dd>${escapeHtml2(asset.mimeType)}</dd></div><div><dt>Size</dt><dd>${escapeHtml2(formatBytes2(asset.size))}</dd></div>` : ""}
       </dl>
     </div>
   </aside>`;
 }
-function renderCallout(item, locale) {
+function renderCallout2(item, locale) {
   const tones = /* @__PURE__ */ new Set(["info", "success", "warning", "error"]);
   const tone = tones.has(item.tone) ? item.tone : "info";
   const title = localized2(item.title, locale);
@@ -27935,7 +28787,7 @@ function renderCallout(item, locale) {
     <div class="callout__body">${renderBasicBlocks(item.body)}</div>
   </aside>`;
 }
-function renderTable(item) {
+function renderTable2(item) {
   const rows = Array.isArray(item.rows) ? item.rows : [];
   const headerRows = Math.max(0, Math.min(rows.length, Number(item.headerRows) || 0));
   function renderRows(selected, cellTag) {
@@ -27954,10 +28806,10 @@ function renderStandaloneItem2(item, locale, context) {
   if (item._type === "block") return renderBlock(item);
   if (item._type === "image") return renderImage2(item, locale, context);
   if (item._type === "code") return renderCode2(item);
-  if (item._type === "video") return renderVideo(item, locale, context);
-  if (item._type === "attachment") return renderAttachment(item, locale, context);
-  if (item._type === "callout") return renderCallout(item, locale);
-  if (item._type === "table") return renderTable(item);
+  if (item._type === "video") return renderVideo2(item, locale, context);
+  if (item._type === "attachment") return renderAttachment2(item, locale, context);
+  if (item._type === "callout") return renderCallout2(item, locale);
+  if (item._type === "table") return renderTable2(item);
   return '<aside class="asset-placeholder">Unsupported content item omitted.</aside>';
 }
 function renderRichBody(items, locale, context) {
@@ -28190,7 +29042,7 @@ function renderHtml2(snapshot, markdownSource, revision, context) {
 </html>
 `;
 }
-function formatBytes(size) {
+function formatBytes2(size) {
   if (size < 1024) return `${size} B`;
   if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KiB`;
   return `${(size / (1024 * 1024)).toFixed(1)} MiB`;
@@ -28222,9 +29074,9 @@ async function writePreview2(previewPath, source) {
     );
   }
   await assertReplaceablePreview2(previewPath);
-  const temporaryPath = path9.join(
-    path9.dirname(previewPath),
-    `.${path9.basename(previewPath)}.${randomUUID3()}.tmp`
+  const temporaryPath = path10.join(
+    path10.dirname(previewPath),
+    `.${path10.basename(previewPath)}.${randomUUID3()}.tmp`
   );
   let handle;
   try {
@@ -28258,7 +29110,7 @@ async function writePreview2(previewPath, source) {
   }
 }
 function validateSnapshot(snapshot) {
-  if (!snapshot || typeof snapshot !== "object" || typeof snapshot.contentType !== "string" || snapshot.contentType.trim().length === 0 || snapshot.contentType.length > 128 || typeof snapshot.slug !== "string" || !SAFE_SLUG.test(snapshot.slug) || typeof snapshot.articlePath !== "string" || !path9.isAbsolute(snapshot.articlePath) || !snapshot.article || typeof snapshot.article !== "object" || !snapshot.article.body || !Array.isArray(snapshot.article.body.en) || !Array.isArray(snapshot.article.body.zh) || !SHA256_PATTERN2.test(snapshot.contentSha256)) {
+  if (!snapshot || typeof snapshot !== "object" || typeof snapshot.contentType !== "string" || snapshot.contentType.trim().length === 0 || snapshot.contentType.length > 128 || typeof snapshot.slug !== "string" || !SAFE_SLUG.test(snapshot.slug) || typeof snapshot.articlePath !== "string" || !path10.isAbsolute(snapshot.articlePath) || !snapshot.article || typeof snapshot.article !== "object" || !snapshot.article.body || !Array.isArray(snapshot.article.body.en) || !Array.isArray(snapshot.article.body.zh) || !SHA256_PATTERN2.test(snapshot.contentSha256)) {
     fail3(
       "CONTENT_PREVIEW_SNAPSHOT_INVALID",
       "The validated content snapshot is invalid."
@@ -28276,8 +29128,8 @@ async function renderContentPreview(snapshot) {
     );
   }
   const revision = previewRevision(snapshot, markdown.bytes, assets);
-  const previewPath = path9.join(
-    path9.dirname(path9.dirname(snapshot.articlePath)),
+  const previewPath = path10.join(
+    path10.dirname(path10.dirname(snapshot.articlePath)),
     `${snapshot.slug}.preview.html`
   );
   const context = assetContext(assets);
@@ -28359,7 +29211,7 @@ import {
   rm as rm7,
   writeFile as writeFile2
 } from "node:fs/promises";
-import path10 from "node:path";
+import path11 from "node:path";
 var CONTENT_TYPES3 = new Set(CONTENT_TYPE_IDS);
 var SLUG_PATTERN6 = /^[a-z0-9]+(?:-[a-z0-9]+)*$/u;
 var RESERVATION_ID_PATTERN2 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
@@ -28371,8 +29223,8 @@ var READ_CHUNK_BYTES2 = 64 * 1024;
 var MAX_METADATA_BYTES = 64 * 1024;
 var MAX_STAGING_TEXT_BYTES2 = 2 * 1024 * 1024;
 var MAX_ASSET_FILES = 10;
-var MAX_ASSET_BYTES2 = 100 * 1024 * 1024;
-var MAX_TOTAL_ASSET_BYTES2 = 256 * 1024 * 1024;
+var MAX_ASSET_BYTES = 100 * 1024 * 1024;
+var MAX_TOTAL_ASSET_BYTES3 = 256 * 1024 * 1024;
 var SAFE_ASSET_NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u;
 var ContentWorkspaceError = class extends Error {
   constructor(code, message, details = void 0) {
@@ -28479,17 +29331,17 @@ async function ensureDirectory(directoryPath, { create = false, privateDirectory
 }
 function resolveWorkspace2(contentType2, config2) {
   const workspaceRoot = config2?.workspaceRoot;
-  if (typeof workspaceRoot !== "string" || workspaceRoot.length === 0 || !path10.isAbsolute(workspaceRoot)) {
+  if (typeof workspaceRoot !== "string" || workspaceRoot.length === 0 || !path11.isAbsolute(workspaceRoot)) {
     fail4("INVALID_WORKSPACE_ROOT", "Configured workspaceRoot must be an absolute path.");
   }
-  const root = path10.resolve(workspaceRoot);
-  const contentsRoot = path10.join(root, "contents");
+  const root = path11.resolve(workspaceRoot);
+  const contentsRoot = path11.join(root, "contents");
   return {
     root,
     contentsRoot,
-    typeRoot: path10.join(contentsRoot, contentType2),
-    reservationsRoot: path10.join(contentsRoot, ".reservations", contentType2),
-    stagingRoot: path10.join(contentsRoot, ".staging", contentType2)
+    typeRoot: path11.join(contentsRoot, contentType2),
+    reservationsRoot: path11.join(contentsRoot, ".reservations", contentType2),
+    stagingRoot: path11.join(contentsRoot, ".staging", contentType2)
   };
 }
 async function openWorkspace2(contentType2, config2) {
@@ -28501,8 +29353,8 @@ async function openWorkspace2(contentType2, config2) {
   await ensureDirectory(workspace.typeRoot, {
     create: true
   });
-  const reservationsControlRoot = path10.dirname(workspace.reservationsRoot);
-  const stagingControlRoot = path10.dirname(workspace.stagingRoot);
+  const reservationsControlRoot = path11.dirname(workspace.reservationsRoot);
+  const stagingControlRoot = path11.dirname(workspace.stagingRoot);
   await ensureDirectory(reservationsControlRoot, {
     create: true,
     privateDirectory: true
@@ -28524,9 +29376,9 @@ async function openWorkspace2(contentType2, config2) {
 function bundlePaths2(directoryPath, slug3) {
   return {
     directoryPath,
-    markdownPath: path10.join(directoryPath, `${slug3}.md`),
-    articlePath: path10.join(directoryPath, `${slug3}.json`),
-    assetsPath: path10.join(directoryPath, "assets")
+    markdownPath: path11.join(directoryPath, `${slug3}.md`),
+    articlePath: path11.join(directoryPath, `${slug3}.json`),
+    assetsPath: path11.join(directoryPath, "assets")
   };
 }
 function compareNames(left, right) {
@@ -28555,7 +29407,7 @@ async function inspectAssets3(assetsPath) {
   let totalBytes = 0n;
   for (const name of names) {
     assertSafeAssetName(name);
-    const entryPath = path10.join(assetsPath, name);
+    const entryPath = path11.join(assetsPath, name);
     const kind = await getEntryKind2(entryPath);
     if (kind === "symlink") {
       fail4("UNSAFE_WORKSPACE_ENTRY", "A content asset is a symbolic link.");
@@ -28575,7 +29427,7 @@ async function inspectAssets3(assetsPath) {
     if (stats.isSymbolicLink() || !stats.isFile()) {
       fail4("UNSAFE_WORKSPACE_ENTRY", "A content asset is not an ordinary file.");
     }
-    if (stats.size > BigInt(MAX_ASSET_BYTES2)) {
+    if (stats.size > BigInt(MAX_ASSET_BYTES)) {
       fail4(
         "STAGING_BUNDLE_INVALID",
         "A content asset exceeds the 100 MiB workspace limit."
@@ -28589,7 +29441,7 @@ async function inspectAssets3(assetsPath) {
       size: stats.size
     });
   }
-  if (totalBytes > BigInt(MAX_TOTAL_ASSET_BYTES2)) {
+  if (totalBytes > BigInt(MAX_TOTAL_ASSET_BYTES3)) {
     fail4(
       "STAGING_BUNDLE_INVALID",
       "The content assets exceed the 256 MiB total workspace limit."
@@ -28771,13 +29623,13 @@ async function digestBundle2(bundle, slug3, changedCode = "BUNDLE_CHANGED") {
     },
     ...bundle.assetFiles.map((asset) => ({
       ...asset,
-      maximumBytes: MAX_ASSET_BYTES2
+      maximumBytes: MAX_ASSET_BYTES
     }))
   ];
   let totalAssetBytes = 0n;
   for (const entry of entries) {
     const isAsset = entry.relativePath.startsWith("assets/");
-    const remainingAssetBytes = BigInt(MAX_TOTAL_ASSET_BYTES2) - totalAssetBytes;
+    const remainingAssetBytes = BigInt(MAX_TOTAL_ASSET_BYTES3) - totalAssetBytes;
     const maximumBytes = isAsset ? Number(
       remainingAssetBytes < BigInt(entry.maximumBytes) ? remainingAssetBytes : BigInt(entry.maximumBytes)
     ) : entry.maximumBytes;
@@ -28801,7 +29653,7 @@ function sameBaseline2(left, right) {
   return left?.state === right?.state && (left?.state === "missing" || left?.digest === right?.digest);
 }
 async function writeReservationMetadata2(lockPath, metadata) {
-  const metadataPath = path10.join(lockPath, METADATA_FILE2);
+  const metadataPath = path11.join(lockPath, METADATA_FILE2);
   try {
     await writeFile2(metadataPath, `${JSON.stringify(metadata)}
 `, {
@@ -28815,7 +29667,7 @@ async function writeReservationMetadata2(lockPath, metadata) {
   }
 }
 async function readReservationMetadata2(workspace, contentType2, slug3, reservationId3) {
-  const lockPath = path10.join(workspace.reservationsRoot, slug3);
+  const lockPath = path11.join(workspace.reservationsRoot, slug3);
   const lockKind = await getEntryKind2(lockPath);
   if (lockKind === "missing") {
     fail4("RESERVATION_NOT_FOUND", "No active content reservation exists for this slug.");
@@ -28832,7 +29684,7 @@ async function readReservationMetadata2(workspace, contentType2, slug3, reservat
   if (names.length !== 1 || names[0] !== METADATA_FILE2) {
     fail4("UNSAFE_RESERVATION", "The content reservation has unexpected entries.");
   }
-  const metadataPath = path10.join(lockPath, METADATA_FILE2);
+  const metadataPath = path11.join(lockPath, METADATA_FILE2);
   let metadataStats;
   try {
     metadataStats = await lstat9(metadataPath);
@@ -28939,12 +29791,12 @@ async function copyExistingBundle2(source, destination, slug3, baseline) {
   );
   let copiedAssetBytes = 0n;
   for (const asset of source.assetFiles) {
-    const remainingAssetBytes = BigInt(MAX_TOTAL_ASSET_BYTES2) - copiedAssetBytes;
+    const remainingAssetBytes = BigInt(MAX_TOTAL_ASSET_BYTES3) - copiedAssetBytes;
     const copiedBytes = await copyOrdinaryFile(
       asset.entryPath,
-      path10.join(destination.assetsPath, asset.name),
+      path11.join(destination.assetsPath, asset.name),
       Number(
-        remainingAssetBytes < BigInt(MAX_ASSET_BYTES2) ? remainingAssetBytes : BigInt(MAX_ASSET_BYTES2)
+        remainingAssetBytes < BigInt(MAX_ASSET_BYTES) ? remainingAssetBytes : BigInt(MAX_ASSET_BYTES)
       )
     );
     copiedAssetBytes += copiedBytes;
@@ -28991,7 +29843,7 @@ async function createStagingBundle(stagingPath, slug3) {
   try {
     await mkdir5(stagingPath, { recursive: false, mode: CONTROL_MODE2 });
     await ensureDirectory(stagingPath, { privateDirectory: true });
-    const paths = bundlePaths2(path10.join(stagingPath, slug3), slug3);
+    const paths = bundlePaths2(path11.join(stagingPath, slug3), slug3);
     await ensureDirectory(paths.directoryPath, {
       create: true,
       privateDirectory: true
@@ -29014,7 +29866,7 @@ async function prepare2({ contentType: contentType2, slug: slug3, config: config
   assertContentType(contentType2);
   assertSlug2(slug3);
   const workspace = await openWorkspace2(contentType2, config2);
-  const destinationPath = path10.join(workspace.typeRoot, slug3);
+  const destinationPath = path11.join(workspace.typeRoot, slug3);
   const localBundle = await inspectBundle2(destinationPath, slug3);
   if (localBundle.state === "partial") {
     fail4("LOCAL_BUNDLE_INCOMPLETE", "The local content bundle is incomplete.");
@@ -29025,8 +29877,8 @@ async function prepare2({ contentType: contentType2, slug: slug3, config: config
   const mode = localBundle.state === "complete" ? "update" : "create";
   const baseline = await digestBundle2(localBundle, slug3, "BASELINE_CHANGED");
   const reservationId3 = randomUUID4();
-  const lockPath = path10.join(workspace.reservationsRoot, slug3);
-  const stagingPath = path10.join(workspace.stagingRoot, reservationId3);
+  const lockPath = path11.join(workspace.reservationsRoot, slug3);
+  const stagingPath = path11.join(workspace.stagingRoot, reservationId3);
   let lockCreated = false;
   let stagingBundle;
   try {
@@ -29174,7 +30026,7 @@ async function assertCommitReady2(stagingPath, slug3, contentType2) {
   }
 }
 async function assertCurrentBaseline2(workspace, slug3, expected) {
-  const current = await inspectBundle2(path10.join(workspace.typeRoot, slug3), slug3);
+  const current = await inspectBundle2(path11.join(workspace.typeRoot, slug3), slug3);
   if (current.state === "partial") {
     fail4("BASELINE_CHANGED", "The local content changed after it was reserved.");
   }
@@ -29268,24 +30120,24 @@ async function commitContentReservation({
     slug3,
     reservationId3
   );
-  const stagingPath = path10.join(workspace.stagingRoot, reservationId3);
+  const stagingPath = path11.join(workspace.stagingRoot, reservationId3);
   const stagingKind = await getEntryKind2(stagingPath);
   if (stagingKind !== "directory") {
     fail4("INVALID_RESERVATION", "The content staging directory is missing or unsafe.");
   }
   await ensureDirectory(stagingPath, { privateDirectory: true });
-  const stagingBundlePath = path10.join(stagingPath, slug3);
+  const stagingBundlePath = path11.join(stagingPath, slug3);
   await assertCommitReady2(stagingBundlePath, slug3, contentType2);
   await assertCurrentBaseline2(workspace, slug3, metadata.baseline);
-  const destinationPath = path10.join(workspace.typeRoot, slug3);
-  const backupRoot = path10.join(stagingPath, ".backup");
+  const destinationPath = path11.join(workspace.typeRoot, slug3);
+  const backupRoot = path11.join(stagingPath, ".backup");
   let backupPath;
   if (metadata.mode === "update") {
     await ensureDirectory(backupRoot, {
       create: true,
       privateDirectory: true
     });
-    backupPath = path10.join(backupRoot, slug3);
+    backupPath = path11.join(backupRoot, slug3);
   }
   await commitDirectoryTransaction({
     stagingBundlePath,
@@ -29340,7 +30192,7 @@ async function releaseContentReservation({
     slug3,
     reservationId3
   );
-  const stagingPath = path10.join(workspace.stagingRoot, reservationId3);
+  const stagingPath = path11.join(workspace.stagingRoot, reservationId3);
   const stagingKind = await getEntryKind2(stagingPath);
   if (!["missing", "directory"].includes(stagingKind)) {
     fail4("UNSAFE_RESERVATION", "The content staging path is unsafe.");
@@ -29753,10 +30605,10 @@ function createContentService({
 }
 
 // src/content-server.mjs
-import path11 from "node:path";
+import path12 from "node:path";
 var contentType = external_exports.enum(CONTENT_TYPE_IDS);
 var slug = external_exports.string().min(1).max(96).regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/u);
-var articlePath = external_exports.string().min(1).max(4096).refine((value) => path11.isAbsolute(value), "articlePath must be absolute");
+var articlePath = external_exports.string().min(1).max(4096).refine((value) => path12.isAbsolute(value), "articlePath must be absolute");
 var reservationId = external_exports.string().uuid().refine(
   (value) => /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(
     value
@@ -29961,7 +30813,7 @@ var CONTENT_TOOL_NAMES = Object.freeze([
 
 // src/server.mjs
 var slug2 = external_exports.string().min(1).max(96).regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/u);
-var articlePath2 = external_exports.string().min(1).max(4096).refine((value) => path12.isAbsolute(value), "articlePath must be absolute");
+var articlePath2 = external_exports.string().min(1).max(4096).refine((value) => path13.isAbsolute(value), "articlePath must be absolute");
 var reservationId2 = external_exports.string().uuid().refine(
   (value) => /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(value),
   "reservationId must be a UUID v4"
@@ -30050,7 +30902,7 @@ function registerBlogTools(server, service) {
     "sanity_blog_prepare_publish",
     {
       title: "Prepare a Sanity blog publish bundle",
-      description: "Reserves a slug and returns the existing staging paths for a new or complete local article bundle whose safe sibling assets may include referenced body and Open Graph images.",
+      description: "Reserves a slug and returns staging paths for a new or complete local article bundle whose safe sibling assets may include nested images, videos, and attachments.",
       inputSchema: BASE_SLUG_INPUT2,
       annotations: LOCAL_WRITE2
     },
@@ -30060,7 +30912,7 @@ function registerBlogTools(server, service) {
     "sanity_blog_prepare_update",
     {
       title: "Prepare a strict Sanity blog update bundle",
-      description: "Returns staging paths and copies every referenced local image only when the complete local article bundle already exists; it never creates an article.",
+      description: "Returns staging paths and copies every referenced local image, video, and attachment only when the complete local article bundle already exists; it never creates an article.",
       inputSchema: SLUG_INPUT2,
       annotations: LOCAL_WRITE2
     },
@@ -30070,7 +30922,7 @@ function registerBlogTools(server, service) {
     "sanity_blog_validate",
     {
       title: "Validate a local Sanity blog article",
-      description: "Performs the built-in article contract, path, Portable Text, image signature, and resource-limit checks with zero remote requests.",
+      description: "Validates the Blog Post template contract, structured Portable Text, safe paths, mixed asset signatures, and resource limits with zero remote requests.",
       inputSchema: ARTICLE_INPUT2,
       annotations: READ_ONLY2
     },
@@ -30080,7 +30932,7 @@ function registerBlogTools(server, service) {
     "sanity_blog_preview",
     {
       title: "Render a local Sanity blog preview",
-      description: "Validates the article JSON and local images, requires the sibling Markdown source, and writes a safe bilingual HTML preview without any remote request.",
+      description: "Validates the article JSON and mixed local assets, requires sibling Markdown, and writes a safe bilingual template-aware HTML preview without remote requests.",
       inputSchema: ARTICLE_INPUT2,
       annotations: LOCAL_RENDER2
     },
@@ -30110,7 +30962,7 @@ function registerBlogTools(server, service) {
     "sanity_blog_commit",
     {
       title: "Commit a staged Sanity blog bundle",
-      description: "Atomically commits the complete reserved Markdown, article JSON, PNG cover, and referenced local image set after baseline checks.",
+      description: "Atomically commits the complete reserved Markdown, article JSON, PNG cover, and referenced mixed asset set after baseline checks.",
       inputSchema: RESERVATION_INPUT2,
       annotations: LOCAL_DESTRUCTIVE2
     },
@@ -30171,7 +31023,7 @@ async function startServer({
 async function main() {
   await startServer();
 }
-if (process.argv[1] && path12.resolve(process.argv[1]) === fileURLToPath2(import.meta.url)) {
+if (process.argv[1] && path13.resolve(process.argv[1]) === fileURLToPath2(import.meta.url)) {
   main().catch(() => {
     console.error("sanityblog MCP server failed");
     process.exitCode = 1;
