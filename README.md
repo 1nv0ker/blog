@@ -135,12 +135,23 @@ node src/cli.mjs --check
 | `alternative` | `sanity-content-alternative-preview` | `sanity-content-alternative-publish` | `sanity-content-alternative-update` |
 | `tutorial` | `sanity-content-tutorial-preview` | `sanity-content-tutorial-publish` | `sanity-content-tutorial-update` |
 
-三个 `blog-post` 技能支持 `default`、`productExplainer`、
-`alternatingContent`、`alternative`、`tutorial`、`solution`、`faq` 和
-`caseStudy` 八种模板。新文章按读者任务自动选型；更新默认保留原模板，只有明确
-要求才切换。正文支持 text/image/code 以及 video、attachment、callout、table、
-mediaText、FAQ、教程步骤和 CTA。预览会还原模板 hero、内容宽度和模块布局，本地
-MP4/WebM 可控播放，外部视频仅显示安全链接。
+三个 `blog-post` 技能支持以下八种模板；`default` 为原样式，其余七种为新增：
+
+| 模板 | 大概布局 |
+| --- | --- |
+| `default` | 编辑型标题与摘要 → 单栏正文 → SEO |
+| `productExplainer` | 左右分栏 hero → 产品图文模块 → FAQ → CTA |
+| `alternatingContent` | 分栏 hero → 多组左右交替图文 → CTA |
+| `alternative` | 紧凑 hero → 宽表格对比 → FAQ → CTA |
+| `tutorial` | 紧凑 hero → 步骤导航与步骤正文 → FAQ → CTA |
+| `solution` | 分栏 hero → 问题/方案图文 → CTA |
+| `faq` | 紧凑 hero → 单栏折叠问答 → CTA |
+| `caseStudy` | 编辑型 hero → 宽内容区案例叙事与证据图文 → CTA |
+
+新文章按读者任务自动选型；更新默认保留原模板，只有明确要求才切换。正文支持
+text/image/code、video、attachment、callout、table、mediaText、FAQ、教程步骤
+和 CTA。预览会还原模板 hero、内容宽度和模块布局；本地 MP4/WebM 可控播放，
+外部视频仅显示安全链接。
 
 技能会在正文定稿后生成双语完整 SEO，并按信息增益决定是否生成正文图片或视频。
 中英正文复用语言中立媒体并分别提供自然 alt；没有可用生成能力时跳过可选媒体，

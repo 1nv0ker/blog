@@ -1,6 +1,6 @@
 {
   "name": "sanityblog",
-  "version": "0.2.0+codex.20260805144102",
+  "version": "0.2.0+codex.20260805150403",
   "description": "Safely preview, publish, and update seven Sanity content types through 21 explicit skills and a local stdio MCP server.",
   "author": {
     "name": "Local developer"
